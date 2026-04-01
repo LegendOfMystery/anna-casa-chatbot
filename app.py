@@ -60,7 +60,7 @@ def get_ai_reply(sender_id: str, user_message: str, sender_name: str = "") -> st
         }
 
     response = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-5",
         max_tokens=1000,
         system=FULL_SYSTEM,
         messages=messages_with_context
