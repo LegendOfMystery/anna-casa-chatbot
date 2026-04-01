@@ -20,10 +20,12 @@ ESCALATE_NOTIFY_URL = os.environ.get("ESCALATE_NOTIFY_URL", "")  # Zalo/Slack we
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
 # ── LOAD PROMPTS ─────────────────────────────────────────────────────────────
-with open("system_prompt.md", "r", encoding="utf-8") as f:
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+with open(os.path.join(BASE_DIR, "system_prompt.md"), "r", encoding="utf-8") as f:
     SYSTEM_PROMPT = f.read()
 
-with open("product_knowledge.md", "r", encoding="utf-8") as f:
+with open(os.path.join(BASE_DIR, "product_knowledge.md"), "r", encoding="utf-8") as f:
     PRODUCT_KNOWLEDGE = f.read()
 
 FULL_SYSTEM = f"{SYSTEM_PROMPT}\n\n---\n\n{PRODUCT_KNOWLEDGE}"
