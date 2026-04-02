@@ -291,7 +291,7 @@ def receive_webhook():
                 customer_id = event.get("recipient", {}).get("id")
                 app_id = message.get("app_id", "")
                 is_bot_reply = (app_id == BOT_APP_ID)
-                print(f"[ECHO] customer_id={customer_id} app_id={app_id} is_bot_reply={is_bot_reply}")
+                print(f"[ECHO] customer_id={customer_id} app_id={repr(app_id)} BOT_APP_ID={repr(BOT_APP_ID)} match={app_id == BOT_APP_ID}")
                 if customer_id and not is_bot_reply:
                     human_mode.add(customer_id)
                     print(f"[HANDOFF] Paused for {customer_id}")
