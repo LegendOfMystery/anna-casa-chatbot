@@ -13,9 +13,9 @@ app = Flask(__name__)
 
 # ── CONFIG ──────────────────────────────────────────────────────────────────
 ANTHROPIC_API_KEY   = os.environ["ANTHROPIC_API_KEY"]
-META_PAGE_TOKEN     = os.environ["META_PAGE_TOKEN"]      # Facebook page access token
-META_VERIFY_TOKEN   = os.environ["META_VERIFY_TOKEN"]    # bạn tự đặt, dùng lúc verify webhook
-ESCALATE_NOTIFY_URL = os.environ.get("ESCALATE_NOTIFY_URL", "")  # Zalo/Slack webhook để notify
+META_PAGE_TOKEN     = os.environ["META_PAGE_TOKEN"]
+META_VERIFY_TOKEN   = os.environ["META_VERIFY_TOKEN"]
+ESCALATE_NOTIFY_URL = os.environ.get("ESCALATE_NOTIFY_URL", "")
 
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -30,37 +30,33 @@ with open(os.path.join(BASE_DIR, "product_knowledge.md"), "r", encoding="utf-8")
 
 FULL_SYSTEM = f"{SYSTEM_PROMPT}\n\n---\n\n{PRODUCT_KNOWLEDGE}"
 
-# ── IN-MEMORY CONVERSATION STORE ─────────────────────────────────────────────
-# Production: thay bằng Redis hoặc SQLite
+# ── IN-MEMORY STORE ──────────────────────────────────────────────────────────
 conversations: dict[str, list] = {}
 processed_messages: set = set()
+human_mode: set = set()  # sender_ids đang được human handle
+
 
 def is_human_handling(sender_id: str) -> bool:
-    try:
-        url = f"https://graph.facebook.com/{sender_id}/labels?access_token={META_PAGE_TOKEN}"
-        res = requests.get(url, timeout=5)
-        labels = res.json().get("data", [])
-        return any(l.get("name") == "Human" for l in labels)
-    except:
-        return False
+    return sender_id in human_mode
+
 
 def get_history(sender_id: str) -> list:
     return conversations.get(sender_id, [])
+
 
 def save_message(sender_id: str, role: str, content: str):
     if sender_id not in conversations:
         conversations[sender_id] = []
     conversations[sender_id].append({"role": role, "content": content})
-    # Giữ tối đa 20 tin nhắn gần nhất để tránh token quá dài
     if len(conversations[sender_id]) > 20:
         conversations[sender_id] = conversations[sender_id][-20:]
+
 
 # ── AI REPLY ─────────────────────────────────────────────────────────────────
 def get_ai_reply(sender_id: str, user_message: str, sender_name: str = "") -> str:
     save_message(sender_id, "user", user_message)
     history = get_history(sender_id)
 
-    # Inject tên khách vào context nếu có
     context_note = f"\n[Context: Tên khách là {sender_name}]" if sender_name else ""
     messages_with_context = history.copy()
     if context_note and messages_with_context:
@@ -80,13 +76,12 @@ def get_ai_reply(sender_id: str, user_message: str, sender_name: str = "") -> st
     save_message(sender_id, "assistant", reply)
     return reply
 
+
 # ── ESCALATE ─────────────────────────────────────────────────────────────────
 def notify_human(sender_id: str, sender_name: str, message: str, ai_reply: str):
-    """Gửi notification cho human khi AI escalate"""
     if not ESCALATE_NOTIFY_URL:
         print(f"[ESCALATE] {sender_name} ({sender_id}): {message}")
         return
-
     payload = {
         "text": f"🔔 CẦN HỖ TRỢ\n"
                 f"Khách: {sender_name}\n"
@@ -99,12 +94,10 @@ def notify_human(sender_id: str, sender_name: str, message: str, ai_reply: str):
     except Exception as e:
         print(f"Escalate notify failed: {e}")
 
-# ── SEND MESSAGE ─────────────────────────────────────────────────────────────
-def send_message(recipient_id: str, message_text: str, platform: str = "messenger"):
-    """Gửi tin nhắn về Facebook/Instagram"""
-    # Xóa tag [ESCALATE] trước khi gửi cho khách
-    clean_message = message_text.replace("[ESCALATE]", "").strip()
 
+# ── SEND MESSAGE ─────────────────────────────────────────────────────────────
+def send_message(recipient_id: str, message_text: str):
+    clean_message = message_text.replace("[ESCALATE]", "").strip()
     url = f"https://graph.facebook.com/v18.0/me/messages?access_token={META_PAGE_TOKEN}"
     payload = {
         "recipient": {"id": recipient_id},
@@ -116,52 +109,6 @@ def send_message(recipient_id: str, message_text: str, platform: str = "messenge
     except Exception as e:
         print(f"Send message failed: {e}")
 
-# ── WEBHOOK VERIFY ────────────────────────────────────────────────────────────
-@app.route("/webhook", methods=["GET"])
-def verify_webhook():
-    """Meta gọi endpoint này lần đầu để verify"""
-    mode      = request.args.get("hub.mode")
-    token     = request.args.get("hub.verify_token")
-    challenge = request.args.get("hub.challenge")
-
-    if mode == "subscribe" and token == META_VERIFY_TOKEN:
-        return challenge, 200
-    return "Forbidden", 403
-
-# ── WEBHOOK RECEIVE ───────────────────────────────────────────────────────────
-@app.route("/webhook", methods=["POST"])
-def receive_webhook():
-    """Nhận tin nhắn từ Facebook/Instagram"""
-    data = request.get_json()
-    if not data:
-        return jsonify({"status": "no data"}), 200
-
-    for entry in data.get("entry", []):
-        for event in entry.get("messaging", []):
-            sender_id = event.get("sender", {}).get("id")
-            message   = event.get("message", {})
-            text      = message.get("text", "")
-
-            if not sender_id or not text:
-                continue
-
-            if is_human_handling(sender_id):
-                continue
-
-            # Lấy tên khách từ Meta Graph API
-            sender_name = get_sender_name(sender_id)
-
-            # Lấy AI reply
-            ai_reply = get_ai_reply(sender_id, text, sender_name)
-
-            # Kiểm tra có cần escalate không
-            if "[ESCALATE]" in ai_reply:
-                notify_human(sender_id, sender_name, text, ai_reply)
-
-            # Gửi reply cho khách
-            send_message(sender_id, ai_reply)
-
-    return jsonify({"status": "ok"}), 200
 
 # ── HELPER: LẤY TÊN KHÁCH ────────────────────────────────────────────────────
 def get_sender_name(sender_id: str) -> str:
@@ -172,7 +119,95 @@ def get_sender_name(sender_id: str) -> str:
     except:
         return ""
 
+
+# ── WEBHOOK VERIFY ────────────────────────────────────────────────────────────
+@app.route("/webhook", methods=["GET"])
+def verify_webhook():
+    mode      = request.args.get("hub.mode")
+    token     = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge")
+    if mode == "subscribe" and token == META_VERIFY_TOKEN:
+        return challenge, 200
+    return "Forbidden", 403
+
+
+# ── WEBHOOK RECEIVE ───────────────────────────────────────────────────────────
+@app.route("/webhook", methods=["POST"])
+def receive_webhook():
+    data = request.get_json()
+    if not data:
+        return jsonify({"status": "no data"}), 200
+
+    for entry in data.get("entry", []):
+        for event in entry.get("messaging", []):
+            sender_id  = event.get("sender", {}).get("id")
+            message    = event.get("message", {})
+            text       = message.get("text", "")
+            message_id = message.get("mid", "")
+            is_echo    = message.get("is_echo", False)
+
+            if not sender_id or not text:
+                continue
+
+            # Nếu sales reply trong inbox → tự động dừng bot cho khách đó
+            if is_echo:
+                customer_id = event.get("recipient", {}).get("id")
+                if customer_id:
+                    human_mode.add(customer_id)
+                    print(f"[HANDOFF] Bot paused for customer {customer_id}")
+                continue
+
+            # Deduplication
+            if message_id and message_id in processed_messages:
+                continue
+            if message_id:
+                processed_messages.add(message_id)
+
+            # Nếu đang human handle thì bỏ qua
+            if is_human_handling(sender_id):
+                continue
+
+            # Lấy tên khách
+            sender_name = get_sender_name(sender_id)
+
+            # Lấy AI reply
+            ai_reply = get_ai_reply(sender_id, text, sender_name)
+
+            # Escalate nếu cần
+            if "[ESCALATE]" in ai_reply:
+                notify_human(sender_id, sender_name, text, ai_reply)
+
+            # Gửi reply
+            send_message(sender_id, ai_reply)
+
+    return jsonify({"status": "ok"}), 200
+
+
+# ── TAKEOVER CONTROL PAGE ─────────────────────────────────────────────────────
+@app.route("/takeover", methods=["GET", "POST"])
+def takeover():
+    """Trang để sales bật lại bot sau khi xử lý xong"""
+    if request.method == "POST":
+        action = request.form.get("action")
+        cid = request.form.get("customer_id", "").strip()
+        if action == "bot" and cid:
+            human_mode.discard(cid)
+            return f"✅ Bot đã bật lại cho khách {cid}"
+        return "❌ Không hợp lệ"
+
+    active = "<br>".join(human_mode) if human_mode else "Không có"
+    return f"""
+    <h2>Anna Casa — Bật lại Bot</h2>
+    <p>Bot tự động dừng khi sales reply. Dùng trang này để bật lại bot cho khách.</p>
+    <form method=POST>
+      Customer ID: <input name=customer_id size=40 placeholder="Paste ID khách vào đây"><br><br>
+      <button name=action value=bot style="padding:8px 16px">▶ Bật lại Bot</button>
+    </form>
+    <br><b>Đang ở chế độ Human (bot đang dừng):</b><br>{active}
+    """
+
+
 # ── RUN ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=port, debug=False)
