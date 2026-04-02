@@ -220,14 +220,13 @@ def process_message(sender_id: str, text: str):
         if "[ESCALATE]" in ai_reply:
             notify_human(sender_id, sender_name, text, ai_reply)
 
-        # Delay trước khi gửi bất kỳ thứ gì
-        time.sleep(15)
-
-        # Gửi product card SAU delay, trước text reply
+        # Gửi product card ngay không cần delay
         if product_card and product_card in PRODUCT_CARDS:
             send_image(sender_id, PRODUCT_CARDS[product_card])
             save_message(sender_id, "assistant", f"[product_card_sent_{product_card}]")
 
+        # Delay 20s trước khi gửi text reply
+        time.sleep(15)
         send_message(sender_id, ai_reply)
 
         # Đánh dấu nếu bot vừa hỏi xem hình không
@@ -279,18 +278,19 @@ def receive_webhook():
             message_id = message.get("mid", "")
             is_echo    = message.get("is_echo", False)
 
+            # DEBUG — log mọi event để kiểm tra echo
+            print(f"[DEBUG] sender={sender_id} is_echo={is_echo} has_text={bool(text)} app_id={message.get('app_id','')} recipient={event.get('recipient',{}).get('id')}")
+
             if not sender_id:
                 continue
 
             # Echo từ sales → dừng bot cho khách đó
-            # Phải check TRƯỚC guard "not text" vì echo từ sales có thể không có text
+            # Check TRƯỚC guard "not text" vì echo từ sales có thể không có text
             if is_echo:
                 customer_id = event.get("recipient", {}).get("id")
-                # sender_id lúc echo là người gửi (sales hoặc bot)
-                # Nếu có PAGE_ID thì so sánh — sales reply thì sender_id == PAGE_ID
-                # Bot reply cũng có sender_id == PAGE_ID nhưng có app_id trong message
                 app_id = message.get("app_id", "")
-                is_bot_reply = bool(app_id)  # Bot reply luôn có app_id
+                is_bot_reply = bool(app_id)
+                print(f"[ECHO] customer_id={customer_id} app_id={app_id} is_bot_reply={is_bot_reply}")
                 if customer_id and not is_bot_reply:
                     human_mode.add(customer_id)
                     print(f"[HANDOFF] Paused for {customer_id}")
@@ -298,6 +298,8 @@ def receive_webhook():
 
             if not text:
                 continue
+
+            # Deduplication
             if message_id and message_id in processed_messages:
                 continue
             if message_id:
