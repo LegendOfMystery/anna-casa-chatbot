@@ -1,11 +1,9 @@
-import re
 """
 ANNA CASA AI CHATBOT
 Stack: Python + Flask + Claude API + Meta Webhook
 """
 
 import os
-import re
 import json
 import requests
 from flask import Flask, request, jsonify
