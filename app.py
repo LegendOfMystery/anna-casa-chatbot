@@ -1,3 +1,4 @@
+import re
 """
 ANNA CASA AI CHATBOT
 Stack: Python + Flask + Claude API + Meta Webhook
