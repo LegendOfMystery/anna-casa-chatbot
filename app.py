@@ -5,6 +5,8 @@ Stack: Python + Flask + Claude API + Meta Webhook
 
 import os
 import re
+import time
+import threading
 import requests
 from flask import Flask, request, jsonify
 from anthropic import Anthropic
@@ -16,6 +18,7 @@ ANTHROPIC_API_KEY   = os.environ["ANTHROPIC_API_KEY"]
 META_PAGE_TOKEN     = os.environ["META_PAGE_TOKEN"]
 META_VERIFY_TOKEN   = os.environ["META_VERIFY_TOKEN"]
 ESCALATE_NOTIFY_URL = os.environ.get("ESCALATE_NOTIFY_URL", "")
+PAGE_ID = os.environ.get("PAGE_ID", "")  # Facebook Page ID để detect echo từ sales
 
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -34,6 +37,7 @@ FULL_SYSTEM = f"{SYSTEM_PROMPT}\n\n---\n\n{PRODUCT_KNOWLEDGE}"
 conversations: dict[str, list] = {}
 processed_messages: set = set()
 human_mode: set = set()
+waiting_photo_confirm: set = set()
 
 
 def is_human_handling(sender_id: str) -> bool:
@@ -127,10 +131,17 @@ def should_send_product_card(text: str, history: list) -> str | None:
     return None
 
 
-def should_send_real_photos(text: str) -> str | None:
-    text_lower = text.lower()
+CONFIRM_KEYWORDS = ["có", "ok", "ừ", "uh", "yes", "muốn", "muon", "cho xem", "xem đi", "xem di", "được", "duoc"]
+
+def should_send_real_photos(text: str, sender_id: str = "") -> str | None:
+    text_lower = text.lower().strip()
     if any(k in text_lower for k in REQUEST_PHOTO_KEYWORDS):
         return "siroc"
+    # Khách confirm xem hình sau khi bot hỏi
+    if sender_id in waiting_photo_confirm:
+        if any(k == text_lower or k in text_lower for k in CONFIRM_KEYWORDS):
+            waiting_photo_confirm.discard(sender_id)
+            return "siroc"
     return None
 
 
@@ -182,6 +193,45 @@ def send_image(recipient_id: str, image_url: str):
         print(f"Send image failed: {e}")
 
 
+
+# ── PROCESS MESSAGE (runs in background thread) ───────────────────────────────
+def process_message(sender_id: str, text: str):
+    """Xử lý tin nhắn trong background — delay 20s để giống người thật"""
+    try:
+        sender_name = get_sender_name(sender_id)
+        history     = get_history(sender_id)
+
+        product_card       = should_send_product_card(text, history)
+        real_photo_product = should_send_real_photos(text, sender_id)
+
+        ai_reply = get_ai_reply(sender_id, text, sender_name)
+
+        if "[ESCALATE]" in ai_reply:
+            notify_human(sender_id, sender_name, text, ai_reply)
+
+        # Gửi product card ngay không cần delay
+        if product_card and product_card in PRODUCT_CARDS:
+            send_image(sender_id, PRODUCT_CARDS[product_card])
+            save_message(sender_id, "assistant", f"[product_card_sent_{product_card}]")
+
+        # Delay 20s trước khi gửi text reply
+        time.sleep(20)
+        send_message(sender_id, ai_reply)
+
+        # Đánh dấu nếu bot vừa hỏi xem hình không
+        ai_lower = ai_reply.lower()
+        if any(p in ai_lower for p in ["muốn xem hình", "xem hình siroc", "xem hình không", "muốn xem không"]):
+            waiting_photo_confirm.add(sender_id)
+
+        # Gửi hình thực tế nếu cần
+        if real_photo_product and real_photo_product in REAL_PHOTOS:
+            for photo_url in REAL_PHOTOS[real_photo_product]:
+                send_image(sender_id, photo_url)
+
+    except Exception as e:
+        print(f"process_message error: {e}")
+
+
 # ── HELPER ────────────────────────────────────────────────────────────────────
 def get_sender_name(sender_id: str) -> str:
     try:
@@ -220,14 +270,17 @@ def receive_webhook():
             if not sender_id or not text:
                 continue
 
-            # Echo từ sales → dừng bot
+            # Echo từ sales → dừng bot cho khách đó
             if is_echo:
-                source_type = message.get("source", {}).get("type", "")
-                if source_type == "HUMAN":
-                    customer_id = event.get("recipient", {}).get("id")
-                    if customer_id:
-                        human_mode.add(customer_id)
-                        print(f"[HANDOFF] Paused for {customer_id}")
+                customer_id = event.get("recipient", {}).get("id")
+                # sender_id lúc echo là người gửi (sales hoặc bot)
+                # Nếu có PAGE_ID thì so sánh — sales reply thì sender_id == PAGE_ID
+                # Bot reply cũng có sender_id == PAGE_ID nhưng có app_id trong message
+                app_id = message.get("app_id", "")
+                is_bot_reply = bool(app_id)  # Bot reply luôn có app_id
+                if customer_id and not is_bot_reply:
+                    human_mode.add(customer_id)
+                    print(f"[HANDOFF] Paused for {customer_id}")
                 continue
 
             # Deduplication
@@ -239,26 +292,12 @@ def receive_webhook():
             if is_human_handling(sender_id):
                 continue
 
-            sender_name = get_sender_name(sender_id)
-            history     = get_history(sender_id)
-
-            product_card     = should_send_product_card(text, history)
-            real_photo_product = should_send_real_photos(text)
-
-            ai_reply = get_ai_reply(sender_id, text, sender_name)
-
-            if "[ESCALATE]" in ai_reply:
-                notify_human(sender_id, sender_name, text, ai_reply)
-
-            if product_card and product_card in PRODUCT_CARDS:
-                send_image(sender_id, PRODUCT_CARDS[product_card])
-                save_message(sender_id, "assistant", f"[product_card_sent_{product_card}]")
-
-            send_message(sender_id, ai_reply)
-
-            if real_photo_product and real_photo_product in REAL_PHOTOS:
-                for photo_url in REAL_PHOTOS[real_photo_product]:
-                    send_image(sender_id, photo_url)
+            # Xử lý trong background thread để không block webhook
+            threading.Thread(
+                target=process_message,
+                args=(sender_id, text),
+                daemon=True
+            ).start()
 
     return jsonify({"status": "ok"}), 200
 
