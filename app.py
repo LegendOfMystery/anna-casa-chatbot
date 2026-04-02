@@ -22,6 +22,9 @@ PAGE_ID = os.environ.get("PAGE_ID", "")
 
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
+# App ID của bot — echo có app_id này là do bot gửi, KHÔNG phải sales
+BOT_APP_ID = os.environ.get("BOT_APP_ID", "2790003938020542")
+
 # ── LOAD PROMPTS ──────────────────────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -287,7 +290,7 @@ def receive_webhook():
             if is_echo:
                 customer_id = event.get("recipient", {}).get("id")
                 app_id = message.get("app_id", "")
-                is_bot_reply = bool(app_id)
+                is_bot_reply = (app_id == BOT_APP_ID)
                 print(f"[ECHO] customer_id={customer_id} app_id={app_id} is_bot_reply={is_bot_reply}")
                 if customer_id and not is_bot_reply:
                     human_mode.add(customer_id)
