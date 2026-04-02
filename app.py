@@ -148,18 +148,47 @@ def should_send_real_photos(text: str) -> str | None:
 
 
 # ── SEND MESSAGE ─────────────────────────────────────────────────────────────
-def send_message(recipient_id: str, message_text: str):
-    clean_message = message_text.replace("[ESCALATE]", "").strip()
+def send_raw_message(recipient_id: str, text: str):
+    """Gửi 1 tin nhắn text đơn giản"""
     url = f"https://graph.facebook.com/v18.0/me/messages?access_token={META_PAGE_TOKEN}"
     payload = {
         "recipient": {"id": recipient_id},
-        "message": {"text": clean_message}
+        "message": {"text": text}
     }
     try:
         response = requests.post(url, json=payload, timeout=10)
         response.raise_for_status()
     except Exception as e:
         print(f"Send message failed: {e}")
+
+
+def send_message(recipient_id: str, message_text: str):
+    """Gửi tin nhắn — tự động tách link thành tin nhắn riêng"""
+    clean_message = message_text.replace("[ESCALATE]", "").strip()
+
+    url_pattern = r'https?://\S+'
+    urls = re.findall(url_pattern, clean_message)
+
+    if urls:
+        # Tách text thành các phần: trước link, link, sau link
+        parts = re.split(url_pattern, clean_message)
+        
+        # Gửi phần text trước link (nếu có)
+        before = parts[0].strip().rstrip('—').strip()
+        if before:
+            send_raw_message(recipient_id, before)
+        
+        # Gửi từng link riêng
+        for url in urls:
+            send_raw_message(recipient_id, url)
+        
+        # Gửi phần text sau link (nếu có)
+        if len(parts) > 1:
+            after = parts[-1].strip().lstrip('—').strip()
+            if after:
+                send_raw_message(recipient_id, after)
+    else:
+        send_raw_message(recipient_id, clean_message)
 
 
 def send_image(recipient_id: str, image_url: str):
