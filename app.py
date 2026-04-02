@@ -113,7 +113,17 @@ REAL_PHOTOS = {
 SIROC_KEYWORDS = ["siroc", "thảm siroc", "thảm bỉ", "thảm chevron"]
 NO_ZALO_KEYWORDS = ["không dùng zalo", "ko dùng zalo", "không có zalo", "ko có zalo",
                     "tư vấn qua đây", "nhắn đây đi", "inbox đây đi", "qua đây đi em",
-                    "không zalo", "ko zalo", "chat đây", "messenger đây"]
+                    "không zalo", "ko zalo", "chat đây", "messenger đây",
+                    "a ko dùng", "anh ko dùng", "không xài zalo", "ko xài zalo"]
+
+REQUEST_PHOTO_KEYWORDS = [
+    "gửi hình", "gửi ảnh", "cho xem hình", "cho anh hình",
+    "cho chị hình", "hình thực tế", "ảnh thực tế",
+    "xem hình", "xem ảnh", "hình đi", "ảnh đi",
+    "hình thật", "ảnh thật", "show hình", "show ảnh",
+    "hình thực", "ảnh thực", "hình chụp", "ảnh chụp",
+    "có hình không", "có ảnh không"
+]
 
 
 def should_send_product_card(text: str, conversation_history: list) -> str | None:
@@ -131,6 +141,8 @@ def should_send_real_photos(text: str) -> str | None:
     """Trả về tên sản phẩm nếu cần gửi hình thực tế, None nếu không"""
     text_lower = text.lower()
     if any(k in text_lower for k in NO_ZALO_KEYWORDS):
+        return "siroc"
+    if any(k in text_lower for k in REQUEST_PHOTO_KEYWORDS):
         return "siroc"
     return None
 
