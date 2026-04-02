@@ -18,7 +18,7 @@ ANTHROPIC_API_KEY   = os.environ["ANTHROPIC_API_KEY"]
 META_PAGE_TOKEN     = os.environ["META_PAGE_TOKEN"]
 META_VERIFY_TOKEN   = os.environ["META_VERIFY_TOKEN"]
 ESCALATE_NOTIFY_URL = os.environ.get("ESCALATE_NOTIFY_URL", "")
-PAGE_ID = os.environ.get("PAGE_ID", "")  # Facebook Page ID để detect echo từ sales
+PAGE_ID = os.environ.get("PAGE_ID", "")
 
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -112,7 +112,6 @@ REAL_PHOTOS = {
 
 SIROC_KEYWORDS = ["siroc", "thảm siroc", "thảm bỉ"]
 
-# Khách từ chối Zalo → gửi hình qua Messenger
 NO_ZALO_KEYWORDS = [
     "không dùng zalo", "ko dùng zalo", "không có zalo", "ko có zalo",
     "không zalo", "ko zalo", "tư vấn qua đây", "chat đây",
@@ -120,7 +119,6 @@ NO_ZALO_KEYWORDS = [
     "inbox đây", "nhắn đây", "qua đây đi"
 ]
 
-# Khách xin hình trực tiếp → gửi hình
 REQUEST_PHOTO_KEYWORDS = [
     "gửi hình", "gửi ảnh", "cho xem hình", "cho anh hình", "cho chị hình",
     "hình thực tế", "ảnh thực tế", "xem hình", "xem ảnh",
@@ -142,13 +140,10 @@ CONFIRM_KEYWORDS = ["có", "ok", "ừ", "uh", "yes", "muốn", "muon", "cho xem"
 
 def should_send_real_photos(text: str, sender_id: str = "") -> str | None:
     text_lower = text.lower().strip()
-    # Khách từ chối Zalo → gửi hình
     if any(k in text_lower for k in NO_ZALO_KEYWORDS):
         return "siroc"
-    # Khách xin hình trực tiếp → gửi hình
     if any(k in text_lower for k in REQUEST_PHOTO_KEYWORDS):
         return "siroc"
-    # Khách confirm xem hình sau khi bot hỏi
     if sender_id in waiting_photo_confirm:
         if any(k == text_lower or k in text_lower for k in CONFIRM_KEYWORDS):
             waiting_photo_confirm.discard(sender_id)
@@ -167,7 +162,6 @@ def send_raw_message(recipient_id: str, text: str):
 
 
 def send_message(recipient_id: str, message_text: str):
-    """Tách link thành tin nhắn riêng"""
     clean = message_text.replace("[ESCALATE]", "").strip()
     url_pattern = r'https?://\S+'
     urls = re.findall(url_pattern, clean)
@@ -204,10 +198,8 @@ def send_image(recipient_id: str, image_url: str):
         print(f"Send image failed: {e}")
 
 
-
 # ── PROCESS MESSAGE (runs in background thread) ───────────────────────────────
 def process_message(sender_id: str, text: str):
-    """Xử lý tin nhắn trong background — delay 20s để giống người thật"""
     try:
         sender_name = get_sender_name(sender_id)
         history     = get_history(sender_id)
@@ -220,13 +212,19 @@ def process_message(sender_id: str, text: str):
         if "[ESCALATE]" in ai_reply:
             notify_human(sender_id, sender_name, text, ai_reply)
 
-        # Gửi product card ngay không cần delay
+        # Delay trước khi gửi bất kỳ thứ gì
+        time.sleep(15)
+
+        # Check lại sau delay — sales có thể đã reply trong lúc chờ 15s
+        if is_human_handling(sender_id):
+            print(f"[HANDOFF] Thread cancelled after delay for {sender_id}")
+            return
+
+        # Gửi product card SAU delay, trước text reply
         if product_card and product_card in PRODUCT_CARDS:
             send_image(sender_id, PRODUCT_CARDS[product_card])
             save_message(sender_id, "assistant", f"[product_card_sent_{product_card}]")
 
-        # Delay 20s trước khi gửi text reply
-        time.sleep(15)
         send_message(sender_id, ai_reply)
 
         # Đánh dấu nếu bot vừa hỏi xem hình không
@@ -278,14 +276,14 @@ def receive_webhook():
             message_id = message.get("mid", "")
             is_echo    = message.get("is_echo", False)
 
-            # DEBUG — log mọi event để kiểm tra echo
+            # DEBUG log
             print(f"[DEBUG] sender={sender_id} is_echo={is_echo} has_text={bool(text)} app_id={message.get('app_id','')} recipient={event.get('recipient',{}).get('id')}")
 
             if not sender_id:
                 continue
 
-            # Echo từ sales → dừng bot cho khách đó
-            # Check TRƯỚC guard "not text" vì echo từ sales có thể không có text
+            # Echo check TRƯỚC guard "not text"
+            # Echo từ sales thường không có text — nếu check text trước sẽ bị skip
             if is_echo:
                 customer_id = event.get("recipient", {}).get("id")
                 app_id = message.get("app_id", "")
@@ -308,7 +306,6 @@ def receive_webhook():
             if is_human_handling(sender_id):
                 continue
 
-            # Xử lý trong background thread để không block webhook
             threading.Thread(
                 target=process_message,
                 args=(sender_id, text),
