@@ -95,6 +95,46 @@ def notify_human(sender_id: str, sender_name: str, message: str, ai_reply: str):
         print(f"Escalate notify failed: {e}")
 
 
+# ── HÌNH ẢNH SẢN PHẨM ───────────────────────────────────────────────────────
+PRODUCT_CARDS = {
+    "siroc": "https://res.cloudinary.com/dxihfwscx/image/upload/v1775103698/SirocProductCard_opax1p.jpg",
+}
+
+REAL_PHOTOS = {
+    "siroc": [
+        "https://res.cloudinary.com/dxihfwscx/image/upload/v1775104078/anh_that_Siroc_4_gyxnoo.jpg",
+        "https://res.cloudinary.com/dxihfwscx/image/upload/v1775104078/anh_that_Siroc_o9ep1e.jpg",
+        "https://res.cloudinary.com/dxihfwscx/image/upload/v1775104078/anh_that_Siroc_5_oljal9.jpg",
+        "https://res.cloudinary.com/dxihfwscx/image/upload/v1775104078/anh_that_Siroc_2_cjmpvx.jpg",
+        "https://res.cloudinary.com/dxihfwscx/image/upload/v1775104078/anh_that_Siroc_3_xprqjp.jpg",
+    ]
+}
+
+SIROC_KEYWORDS = ["siroc", "thảm siroc", "thảm bỉ", "thảm chevron"]
+NO_ZALO_KEYWORDS = ["không dùng zalo", "ko dùng zalo", "không có zalo", "ko có zalo",
+                    "tư vấn qua đây", "nhắn đây đi", "inbox đây đi", "qua đây đi em",
+                    "không zalo", "ko zalo", "chat đây", "messenger đây"]
+
+
+def should_send_product_card(text: str, conversation_history: list) -> str | None:
+    """Trả về tên sản phẩm nếu cần gửi product card, None nếu không"""
+    text_lower = text.lower()
+    # Chỉ gửi product card lần đầu khách hỏi — kiểm tra history chưa có card
+    history_text = " ".join([m.get("content", "") for m in conversation_history]).lower()
+    if any(k in text_lower for k in SIROC_KEYWORDS):
+        if "product_card_sent_siroc" not in history_text:
+            return "siroc"
+    return None
+
+
+def should_send_real_photos(text: str) -> str | None:
+    """Trả về tên sản phẩm nếu cần gửi hình thực tế, None nếu không"""
+    text_lower = text.lower()
+    if any(k in text_lower for k in NO_ZALO_KEYWORDS):
+        return "siroc"
+    return None
+
+
 # ── SEND MESSAGE ─────────────────────────────────────────────────────────────
 def send_message(recipient_id: str, message_text: str):
     clean_message = message_text.replace("[ESCALATE]", "").strip()
@@ -108,6 +148,28 @@ def send_message(recipient_id: str, message_text: str):
         response.raise_for_status()
     except Exception as e:
         print(f"Send message failed: {e}")
+
+
+def send_image(recipient_id: str, image_url: str):
+    """Gửi hình ảnh cho khách"""
+    url = f"https://graph.facebook.com/v18.0/me/messages?access_token={META_PAGE_TOKEN}"
+    payload = {
+        "recipient": {"id": recipient_id},
+        "message": {
+            "attachment": {
+                "type": "image",
+                "payload": {
+                    "url": image_url,
+                    "is_reusable": True
+                }
+            }
+        }
+    }
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"Send image failed: {e}")
 
 
 # ── HELPER: LẤY TÊN KHÁCH ────────────────────────────────────────────────────
@@ -170,6 +232,12 @@ def receive_webhook():
             # Lấy tên khách
             sender_name = get_sender_name(sender_id)
 
+            # Kiểm tra có cần gửi product card không
+            product_card = should_send_product_card(text, get_history(sender_id))
+
+            # Kiểm tra có cần gửi hình thực tế không (khách từ chối Zalo)
+            real_photo_product = should_send_real_photos(text)
+
             # Lấy AI reply
             ai_reply = get_ai_reply(sender_id, text, sender_name)
 
@@ -177,8 +245,19 @@ def receive_webhook():
             if "[ESCALATE]" in ai_reply:
                 notify_human(sender_id, sender_name, text, ai_reply)
 
-            # Gửi reply
+            # Gửi product card trước nếu cần
+            if product_card and product_card in PRODUCT_CARDS:
+                send_image(sender_id, PRODUCT_CARDS[product_card])
+                # Đánh dấu đã gửi để không gửi lại
+                save_message(sender_id, "assistant", f"[product_card_sent_{product_card}]")
+
+            # Gửi text reply
             send_message(sender_id, ai_reply)
+
+            # Gửi hình thực tế sau text nếu khách từ chối Zalo
+            if real_photo_product and real_photo_product in REAL_PHOTOS:
+                for photo_url in REAL_PHOTOS[real_photo_product]:
+                    send_image(sender_id, photo_url)
 
     return jsonify({"status": "ok"}), 200
 
