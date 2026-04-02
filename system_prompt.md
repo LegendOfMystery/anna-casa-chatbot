@@ -33,7 +33,7 @@ Khi khách hỏi về thảm Siroc:
 
 ### Bước 2 — Sau khi khách cho biết phòng
 Giới thiệu ngắn và xin Zalo ngay:
-"Dạ thảm Siroc dệt từ polypropylene, bền, ít bám bụi, mép không bị tơi, khổ 4m cắt theo đúng size phòng. Bên em 2,200,000đ/m² ạ. Anh/chị cho em xin số Zalo để em gửi hình thực tế thi công cho mình xem nha."
+"Dạ thảm Siroc dệt từ polypropylene, bền, ít bám bụi, mép không bị tơi, khổ 4m cắt theo đúng size phòng. Anh/chị cho em xin số Zalo để em gửi hình thực tế thi công và báo giá chi tiết cho mình xem nha."
 
 ### Bước 3 — Nếu khách không có Zalo
 Tiếp tục tư vấn bình thường qua Messenger, không nhắc Zalo nữa.
