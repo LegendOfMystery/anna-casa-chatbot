@@ -212,11 +212,17 @@ def receive_webhook():
                 continue
 
             # Nếu sales reply trong inbox → tự động dừng bot cho khách đó
+            # Chỉ dừng khi echo KHÔNG phải từ chính bot (app_id khác)
             if is_echo:
-                customer_id = event.get("recipient", {}).get("id")
-                if customer_id:
-                    human_mode.add(customer_id)
-                    print(f"[HANDOFF] Bot paused for customer {customer_id}")
+                # Echo từ chính bot sẽ có source.type = "NON_HUMAN" hoặc không có source
+                source = event.get("message", {}).get("source", {})
+                source_type = source.get("type", "")
+                # Nếu source type là HUMAN thì mới là sales reply thật
+                if source_type == "HUMAN":
+                    customer_id = event.get("recipient", {}).get("id")
+                    if customer_id:
+                        human_mode.add(customer_id)
+                        print(f"[HANDOFF] Bot paused for customer {customer_id}")
                 continue
 
             # Deduplication
