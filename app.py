@@ -112,13 +112,20 @@ REAL_PHOTOS = {
 
 SIROC_KEYWORDS = ["siroc", "thảm siroc", "thảm bỉ"]
 
+# Khách từ chối Zalo → gửi hình qua Messenger
+NO_ZALO_KEYWORDS = [
+    "không dùng zalo", "ko dùng zalo", "không có zalo", "ko có zalo",
+    "không zalo", "ko zalo", "tư vấn qua đây", "chat đây",
+    "không xài zalo", "ko xài zalo", "a ko dùng", "anh ko dùng",
+    "inbox đây", "nhắn đây", "qua đây đi"
+]
+
+# Khách xin hình trực tiếp → gửi hình
 REQUEST_PHOTO_KEYWORDS = [
     "gửi hình", "gửi ảnh", "cho xem hình", "cho anh hình", "cho chị hình",
     "hình thực tế", "ảnh thực tế", "xem hình", "xem ảnh",
     "hình thật", "ảnh thật", "hình thực", "ảnh thực",
-    "không dùng zalo", "ko dùng zalo", "không có zalo", "ko có zalo",
-    "không zalo", "ko zalo", "tư vấn qua đây", "chat đây",
-    "không xài zalo", "ko xài zalo"
+    "gửi qua đây nha", "em gửi qua đây"
 ]
 
 
@@ -135,6 +142,10 @@ CONFIRM_KEYWORDS = ["có", "ok", "ừ", "uh", "yes", "muốn", "muon", "cho xem"
 
 def should_send_real_photos(text: str, sender_id: str = "") -> str | None:
     text_lower = text.lower().strip()
+    # Khách từ chối Zalo → gửi hình
+    if any(k in text_lower for k in NO_ZALO_KEYWORDS):
+        return "siroc"
+    # Khách xin hình trực tiếp → gửi hình
     if any(k in text_lower for k in REQUEST_PHOTO_KEYWORDS):
         return "siroc"
     # Khách confirm xem hình sau khi bot hỏi
@@ -215,7 +226,7 @@ def process_message(sender_id: str, text: str):
             save_message(sender_id, "assistant", f"[product_card_sent_{product_card}]")
 
         # Delay 20s trước khi gửi text reply
-        time.sleep(20)
+        time.sleep(15)
         send_message(sender_id, ai_reply)
 
         # Đánh dấu nếu bot vừa hỏi xem hình không
