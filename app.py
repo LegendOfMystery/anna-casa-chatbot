@@ -1,18 +1,17 @@
-import re
 """
 ANNA CASA AI CHATBOT
 Stack: Python + Flask + Claude API + Meta Webhook
 """
 
 import os
-import json
+import re
 import requests
 from flask import Flask, request, jsonify
 from anthropic import Anthropic
 
 app = Flask(__name__)
 
-# ── CONFIG ──────────────────────────────────────────────────────────────────
+# ── CONFIG ───────────────────────────────────────────────────────────────────
 ANTHROPIC_API_KEY   = os.environ["ANTHROPIC_API_KEY"]
 META_PAGE_TOKEN     = os.environ["META_PAGE_TOKEN"]
 META_VERIFY_TOKEN   = os.environ["META_VERIFY_TOKEN"]
@@ -20,7 +19,7 @@ ESCALATE_NOTIFY_URL = os.environ.get("ESCALATE_NOTIFY_URL", "")
 
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
-# ── LOAD PROMPTS ─────────────────────────────────────────────────────────────
+# ── LOAD PROMPTS ──────────────────────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 with open(os.path.join(BASE_DIR, "system_prompt.md"), "r", encoding="utf-8") as f:
@@ -31,10 +30,10 @@ with open(os.path.join(BASE_DIR, "product_knowledge.md"), "r", encoding="utf-8")
 
 FULL_SYSTEM = f"{SYSTEM_PROMPT}\n\n---\n\n{PRODUCT_KNOWLEDGE}"
 
-# ── IN-MEMORY STORE ──────────────────────────────────────────────────────────
+# ── IN-MEMORY STORE ───────────────────────────────────────────────────────────
 conversations: dict[str, list] = {}
 processed_messages: set = set()
-human_mode: set = set()  # sender_ids đang được human handle
+human_mode: set = set()
 
 
 def is_human_handling(sender_id: str) -> bool:
@@ -53,7 +52,7 @@ def save_message(sender_id: str, role: str, content: str):
         conversations[sender_id] = conversations[sender_id][-20:]
 
 
-# ── AI REPLY ─────────────────────────────────────────────────────────────────
+# ── AI REPLY ──────────────────────────────────────────────────────────────────
 def get_ai_reply(sender_id: str, user_message: str, sender_name: str = "") -> str:
     save_message(sender_id, "user", user_message)
     history = get_history(sender_id)
@@ -78,17 +77,13 @@ def get_ai_reply(sender_id: str, user_message: str, sender_name: str = "") -> st
     return reply
 
 
-# ── ESCALATE ─────────────────────────────────────────────────────────────────
+# ── ESCALATE ──────────────────────────────────────────────────────────────────
 def notify_human(sender_id: str, sender_name: str, message: str, ai_reply: str):
     if not ESCALATE_NOTIFY_URL:
         print(f"[ESCALATE] {sender_name} ({sender_id}): {message}")
         return
     payload = {
-        "text": f"🔔 CẦN HỖ TRỢ\n"
-                f"Khách: {sender_name}\n"
-                f"ID: {sender_id}\n"
-                f"Tin nhắn: {message}\n"
-                f"AI reply: {ai_reply}"
+        "text": f"CAN HO TRO\nKhach: {sender_name}\nID: {sender_id}\nTin nhan: {message}\nAI reply: {ai_reply}"
     }
     try:
         requests.post(ESCALATE_NOTIFY_URL, json=payload, timeout=5)
@@ -96,7 +91,7 @@ def notify_human(sender_id: str, sender_name: str, message: str, ai_reply: str):
         print(f"Escalate notify failed: {e}")
 
 
-# ── HÌNH ẢNH SẢN PHẨM ───────────────────────────────────────────────────────
+# ── HÌNH ẢNH SẢN PHẨM ────────────────────────────────────────────────────────
 PRODUCT_CARDS = {
     "siroc": "https://res.cloudinary.com/dxihfwscx/image/upload/v1775103698/SirocProductCard_opax1p.jpg",
 }
@@ -111,27 +106,21 @@ REAL_PHOTOS = {
     ]
 }
 
-SIROC_KEYWORDS = ["siroc", "thảm siroc", "thảm bỉ", "thảm chevron"]
-NO_ZALO_KEYWORDS = ["không dùng zalo", "ko dùng zalo", "không có zalo", "ko có zalo",
-                    "tư vấn qua đây", "nhắn đây đi", "inbox đây đi", "qua đây đi em",
-                    "không zalo", "ko zalo", "chat đây", "messenger đây",
-                    "a ko dùng", "anh ko dùng", "không xài zalo", "ko xài zalo"]
+SIROC_KEYWORDS = ["siroc", "thảm siroc", "thảm bỉ"]
 
 REQUEST_PHOTO_KEYWORDS = [
-    "gửi hình", "gửi ảnh", "cho xem hình", "cho anh hình",
-    "cho chị hình", "hình thực tế", "ảnh thực tế",
-    "xem hình", "xem ảnh", "hình đi", "ảnh đi",
-    "hình thật", "ảnh thật", "show hình", "show ảnh",
-    "hình thực", "ảnh thực", "hình chụp", "ảnh chụp",
-    "có hình không", "có ảnh không"
+    "gửi hình", "gửi ảnh", "cho xem hình", "cho anh hình", "cho chị hình",
+    "hình thực tế", "ảnh thực tế", "xem hình", "xem ảnh",
+    "hình thật", "ảnh thật", "hình thực", "ảnh thực",
+    "không dùng zalo", "ko dùng zalo", "không có zalo", "ko có zalo",
+    "không zalo", "ko zalo", "tư vấn qua đây", "chat đây",
+    "không xài zalo", "ko xài zalo"
 ]
 
 
-def should_send_product_card(text: str, conversation_history: list) -> str | None:
-    """Trả về tên sản phẩm nếu cần gửi product card, None nếu không"""
+def should_send_product_card(text: str, history: list) -> str | None:
     text_lower = text.lower()
-    # Chỉ gửi product card lần đầu khách hỏi — kiểm tra history chưa có card
-    history_text = " ".join([m.get("content", "") for m in conversation_history]).lower()
+    history_text = " ".join([m.get("content", "") for m in history]).lower()
     if any(k in text_lower for k in SIROC_KEYWORDS):
         if "product_card_sent_siroc" not in history_text:
             return "siroc"
@@ -139,87 +128,65 @@ def should_send_product_card(text: str, conversation_history: list) -> str | Non
 
 
 def should_send_real_photos(text: str) -> str | None:
-    """Trả về tên sản phẩm nếu cần gửi hình thực tế, None nếu không"""
     text_lower = text.lower()
-    if any(k in text_lower for k in NO_ZALO_KEYWORDS):
-        return "siroc"
     if any(k in text_lower for k in REQUEST_PHOTO_KEYWORDS):
         return "siroc"
     return None
 
 
-# ── SEND MESSAGE ─────────────────────────────────────────────────────────────
+# ── SEND MESSAGES ─────────────────────────────────────────────────────────────
 def send_raw_message(recipient_id: str, text: str):
-    """Gửi 1 tin nhắn text đơn giản"""
     url = f"https://graph.facebook.com/v18.0/me/messages?access_token={META_PAGE_TOKEN}"
-    payload = {
-        "recipient": {"id": recipient_id},
-        "message": {"text": text}
-    }
+    payload = {"recipient": {"id": recipient_id}, "message": {"text": text}}
     try:
-        response = requests.post(url, json=payload, timeout=10)
-        response.raise_for_status()
+        requests.post(url, json=payload, timeout=10).raise_for_status()
     except Exception as e:
         print(f"Send message failed: {e}")
 
 
 def send_message(recipient_id: str, message_text: str):
-    """Gửi tin nhắn — tự động tách link thành tin nhắn riêng"""
-    clean_message = message_text.replace("[ESCALATE]", "").strip()
-
+    """Tách link thành tin nhắn riêng"""
+    clean = message_text.replace("[ESCALATE]", "").strip()
     url_pattern = r'https?://\S+'
-    urls = re.findall(url_pattern, clean_message)
+    urls = re.findall(url_pattern, clean)
 
     if urls:
-        # Tách text thành các phần: trước link, link, sau link
-        parts = re.split(url_pattern, clean_message)
-        
-        # Gửi phần text trước link (nếu có)
-        before = parts[0].strip().rstrip('—').strip()
+        parts = re.split(url_pattern, clean)
+        before = parts[0].strip().rstrip(',').strip()
         if before:
             send_raw_message(recipient_id, before)
-        
-        # Gửi từng link riêng
-        for url in urls:
-            send_raw_message(recipient_id, url)
-        
-        # Gửi phần text sau link (nếu có)
+        for u in urls:
+            send_raw_message(recipient_id, u)
         if len(parts) > 1:
-            after = parts[-1].strip().lstrip('—').strip()
+            after = parts[-1].strip().lstrip(',').strip()
             if after:
                 send_raw_message(recipient_id, after)
     else:
-        send_raw_message(recipient_id, clean_message)
+        send_raw_message(recipient_id, clean)
 
 
 def send_image(recipient_id: str, image_url: str):
-    """Gửi hình ảnh cho khách"""
     url = f"https://graph.facebook.com/v18.0/me/messages?access_token={META_PAGE_TOKEN}"
     payload = {
         "recipient": {"id": recipient_id},
         "message": {
             "attachment": {
                 "type": "image",
-                "payload": {
-                    "url": image_url,
-                    "is_reusable": True
-                }
+                "payload": {"url": image_url, "is_reusable": True}
             }
         }
     }
     try:
-        response = requests.post(url, json=payload, timeout=10)
-        response.raise_for_status()
+        requests.post(url, json=payload, timeout=10).raise_for_status()
     except Exception as e:
         print(f"Send image failed: {e}")
 
 
-# ── HELPER: LẤY TÊN KHÁCH ────────────────────────────────────────────────────
+# ── HELPER ────────────────────────────────────────────────────────────────────
 def get_sender_name(sender_id: str) -> str:
     try:
         url = f"https://graph.facebook.com/{sender_id}?fields=name&access_token={META_PAGE_TOKEN}"
-        res = requests.get(url, timeout=5)
-        return res.json().get("name", "")
+        return requests.get(url, timeout=5).json().get("name", "")
     except:
         return ""
 
@@ -253,18 +220,14 @@ def receive_webhook():
             if not sender_id or not text:
                 continue
 
-            # Nếu sales reply trong inbox → tự động dừng bot cho khách đó
-            # Chỉ dừng khi echo KHÔNG phải từ chính bot (app_id khác)
+            # Echo từ sales → dừng bot
             if is_echo:
-                # Echo từ chính bot sẽ có source.type = "NON_HUMAN" hoặc không có source
-                source = event.get("message", {}).get("source", {})
-                source_type = source.get("type", "")
-                # Nếu source type là HUMAN thì mới là sales reply thật
+                source_type = message.get("source", {}).get("type", "")
                 if source_type == "HUMAN":
                     customer_id = event.get("recipient", {}).get("id")
                     if customer_id:
                         human_mode.add(customer_id)
-                        print(f"[HANDOFF] Bot paused for customer {customer_id}")
+                        print(f"[HANDOFF] Paused for {customer_id}")
                 continue
 
             # Deduplication
@@ -273,36 +236,26 @@ def receive_webhook():
             if message_id:
                 processed_messages.add(message_id)
 
-            # Nếu đang human handle thì bỏ qua
             if is_human_handling(sender_id):
                 continue
 
-            # Lấy tên khách
             sender_name = get_sender_name(sender_id)
+            history     = get_history(sender_id)
 
-            # Kiểm tra có cần gửi product card không
-            product_card = should_send_product_card(text, get_history(sender_id))
-
-            # Kiểm tra có cần gửi hình thực tế không (khách từ chối Zalo)
+            product_card     = should_send_product_card(text, history)
             real_photo_product = should_send_real_photos(text)
 
-            # Lấy AI reply
             ai_reply = get_ai_reply(sender_id, text, sender_name)
 
-            # Escalate nếu cần
             if "[ESCALATE]" in ai_reply:
                 notify_human(sender_id, sender_name, text, ai_reply)
 
-            # Gửi product card trước nếu cần
             if product_card and product_card in PRODUCT_CARDS:
                 send_image(sender_id, PRODUCT_CARDS[product_card])
-                # Đánh dấu đã gửi để không gửi lại
                 save_message(sender_id, "assistant", f"[product_card_sent_{product_card}]")
 
-            # Gửi text reply
             send_message(sender_id, ai_reply)
 
-            # Gửi hình thực tế sau text nếu khách từ chối Zalo
             if real_photo_product and real_photo_product in REAL_PHOTOS:
                 for photo_url in REAL_PHOTOS[real_photo_product]:
                     send_image(sender_id, photo_url)
@@ -310,27 +263,26 @@ def receive_webhook():
     return jsonify({"status": "ok"}), 200
 
 
-# ── TAKEOVER CONTROL PAGE ─────────────────────────────────────────────────────
+# ── TAKEOVER PAGE ─────────────────────────────────────────────────────────────
 @app.route("/takeover", methods=["GET", "POST"])
 def takeover():
-    """Trang để sales bật lại bot sau khi xử lý xong"""
     if request.method == "POST":
-        action = request.form.get("action")
         cid = request.form.get("customer_id", "").strip()
+        action = request.form.get("action")
         if action == "bot" and cid:
             human_mode.discard(cid)
-            return f"✅ Bot đã bật lại cho khách {cid}"
-        return "❌ Không hợp lệ"
+            return f"Bot da bat lai cho khach {cid}"
+        return "Khong hop le"
 
-    active = "<br>".join(human_mode) if human_mode else "Không có"
+    active = "<br>".join(human_mode) if human_mode else "Khong co"
     return f"""
-    <h2>Anna Casa — Bật lại Bot</h2>
-    <p>Bot tự động dừng khi sales reply. Dùng trang này để bật lại bot cho khách.</p>
+    <h2>Anna Casa — Bat lai Bot</h2>
+    <p>Bot tu dong dung khi sales reply. Dung trang nay de bat lai.</p>
     <form method=POST>
-      Customer ID: <input name=customer_id size=40 placeholder="Paste ID khách vào đây"><br><br>
-      <button name=action value=bot style="padding:8px 16px">▶ Bật lại Bot</button>
+      Customer ID: <input name=customer_id size=40 placeholder="Paste ID khach"><br><br>
+      <button name=action value=bot style="padding:8px 16px">Bat lai Bot</button>
     </form>
-    <br><b>Đang ở chế độ Human (bot đang dừng):</b><br>{active}
+    <br><b>Dang o che do Human:</b><br>{active}
     """
 
 
