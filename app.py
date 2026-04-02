@@ -33,6 +33,16 @@ FULL_SYSTEM = f"{SYSTEM_PROMPT}\n\n---\n\n{PRODUCT_KNOWLEDGE}"
 # ── IN-MEMORY CONVERSATION STORE ─────────────────────────────────────────────
 # Production: thay bằng Redis hoặc SQLite
 conversations: dict[str, list] = {}
+processed_messages: set = set()
+
+def is_human_handling(sender_id: str) -> bool:
+    try:
+        url = f"https://graph.facebook.com/{sender_id}/labels?access_token={META_PAGE_TOKEN}"
+        res = requests.get(url, timeout=5)
+        labels = res.json().get("data", [])
+        return any(l.get("name") == "Human" for l in labels)
+    except:
+        return False
 
 def get_history(sender_id: str) -> list:
     return conversations.get(sender_id, [])
@@ -133,6 +143,9 @@ def receive_webhook():
             text      = message.get("text", "")
 
             if not sender_id or not text:
+                continue
+
+            if is_human_handling(sender_id):
                 continue
 
             # Lấy tên khách từ Meta Graph API
