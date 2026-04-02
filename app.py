@@ -18,12 +18,8 @@ ANTHROPIC_API_KEY   = os.environ["ANTHROPIC_API_KEY"]
 META_PAGE_TOKEN     = os.environ["META_PAGE_TOKEN"]
 META_VERIFY_TOKEN   = os.environ["META_VERIFY_TOKEN"]
 ESCALATE_NOTIFY_URL = os.environ.get("ESCALATE_NOTIFY_URL", "")
-PAGE_ID = os.environ.get("PAGE_ID", "")
 
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
-
-# App ID của bot — echo có app_id này là do bot gửi, KHÔNG phải sales
-BOT_APP_ID = os.environ.get("BOT_APP_ID", "2790003938020542")
 
 # ── LOAD PROMPTS ──────────────────────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -41,6 +37,7 @@ conversations: dict[str, list] = {}
 processed_messages: set = set()
 human_mode: set = set()
 waiting_photo_confirm: set = set()
+bot_sending: set = set()  # Đánh dấu bot đang gửi tin cho khách nào
 
 
 def is_human_handling(sender_id: str) -> bool:
@@ -201,7 +198,7 @@ def send_image(recipient_id: str, image_url: str):
         print(f"Send image failed: {e}")
 
 
-# ── PROCESS MESSAGE (runs in background thread) ───────────────────────────────
+# ── PROCESS MESSAGE ───────────────────────────────────────────────────────────
 def process_message(sender_id: str, text: str):
     try:
         sender_name = get_sender_name(sender_id)
@@ -215,33 +212,39 @@ def process_message(sender_id: str, text: str):
         if "[ESCALATE]" in ai_reply:
             notify_human(sender_id, sender_name, text, ai_reply)
 
-        # Delay trước khi gửi bất kỳ thứ gì
+        # Delay trước khi gửi
         time.sleep(15)
 
-        # Check lại sau delay — sales có thể đã reply trong lúc chờ 15s
+        # Check lại sau delay — sales có thể đã reply trong lúc chờ
         if is_human_handling(sender_id):
             print(f"[HANDOFF] Thread cancelled after delay for {sender_id}")
             return
 
-        # Gửi product card SAU delay, trước text reply
+        # Đánh dấu bot đang gửi — echo từ lúc này là do bot, không phải sales
+        bot_sending.add(sender_id)
+
         if product_card and product_card in PRODUCT_CARDS:
             send_image(sender_id, PRODUCT_CARDS[product_card])
             save_message(sender_id, "assistant", f"[product_card_sent_{product_card}]")
 
         send_message(sender_id, ai_reply)
 
-        # Đánh dấu nếu bot vừa hỏi xem hình không
+        # Đánh dấu nếu bot vừa hỏi xem hình
         ai_lower = ai_reply.lower()
         if any(p in ai_lower for p in ["muốn xem hình", "xem hình siroc", "xem hình không", "muốn xem không"]):
             waiting_photo_confirm.add(sender_id)
 
-        # Gửi hình thực tế nếu cần
         if real_photo_product and real_photo_product in REAL_PHOTOS:
             for photo_url in REAL_PHOTOS[real_photo_product]:
                 send_image(sender_id, photo_url)
 
+        # Xong rồi, bỏ flag — echo sau thời điểm này là của sales
+        time.sleep(3)
+        bot_sending.discard(sender_id)
+
     except Exception as e:
         print(f"process_message error: {e}")
+        bot_sending.discard(sender_id)
 
 
 # ── HELPER ────────────────────────────────────────────────────────────────────
@@ -279,22 +282,20 @@ def receive_webhook():
             message_id = message.get("mid", "")
             is_echo    = message.get("is_echo", False)
 
-            # DEBUG log
-            print(f"[DEBUG] sender={sender_id} is_echo={is_echo} has_text={bool(text)} app_id={message.get('app_id','')} recipient={event.get('recipient',{}).get('id')}")
-
             if not sender_id:
                 continue
 
-            # Echo check TRƯỚC guard "not text"
-            # Echo từ sales thường không có text — nếu check text trước sẽ bị skip
             if is_echo:
                 customer_id = event.get("recipient", {}).get("id")
-                app_id = message.get("app_id", "")
-                is_bot_reply = (app_id == BOT_APP_ID)
-                print(f"[ECHO] customer_id={customer_id} app_id={repr(app_id)} BOT_APP_ID={repr(BOT_APP_ID)} match={app_id == BOT_APP_ID}")
-                if customer_id and not is_bot_reply:
-                    human_mode.add(customer_id)
-                    print(f"[HANDOFF] Paused for {customer_id}")
+                if not customer_id:
+                    continue
+                # Nếu bot đang gửi → echo này là của bot, bỏ qua
+                if customer_id in bot_sending:
+                    print(f"[ECHO] Bot echo, skip for {customer_id}")
+                    continue
+                # Bot không đang gửi → echo này là sales reply → dừng bot
+                human_mode.add(customer_id)
+                print(f"[HANDOFF] Sales replied, paused for {customer_id}")
                 continue
 
             if not text:
@@ -307,6 +308,7 @@ def receive_webhook():
                 processed_messages.add(message_id)
 
             if is_human_handling(sender_id):
+                print(f"[SKIP] Human mode active for {sender_id}")
                 continue
 
             threading.Thread(
