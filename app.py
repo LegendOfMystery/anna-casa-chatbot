@@ -116,7 +116,9 @@ NO_ZALO_KEYWORDS = [
     "không dùng zalo", "ko dùng zalo", "không có zalo", "ko có zalo",
     "không zalo", "ko zalo", "tư vấn qua đây", "chat đây",
     "không xài zalo", "ko xài zalo", "a ko dùng", "anh ko dùng",
-    "inbox đây", "nhắn đây", "qua đây đi"
+    "inbox đây", "nhắn đây", "qua đây đi",
+    "anh ko xài", "anh không xài", "mình ko xài", "mình không xài",
+    "không dùng", "ko dùng", "không xài", "ko xài"
 ]
 
 REQUEST_PHOTO_KEYWORDS = [
