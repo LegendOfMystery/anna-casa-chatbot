@@ -239,7 +239,7 @@ def process_message(sender_id: str, text: str):
                 send_image(sender_id, photo_url)
 
         # Xong rồi, bỏ flag — echo sau thời điểm này là của sales
-        time.sleep(3)
+        time.sleep(10)
         bot_sending.discard(sender_id)
 
     except Exception as e:
