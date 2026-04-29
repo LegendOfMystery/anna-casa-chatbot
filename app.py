@@ -35,7 +35,7 @@ SIROC_GREETING = (
 )
 
 SIROC_INTRO = (
-    "Dạ Siroc bên Anna Casa là dòng thảm Bỉ dùng công nghệ Heat Set, "
+    "Dạ Thảm Siroc bên Anna Casa là dòng thảm Bỉ dùng công nghệ Heat Set, "
     "sợi được xử lý nhiệt trước khi dệt nên bền hơn, ít bám bụi và "
     "dễ vệ sinh hơn thảm thông thường ạ."
 )
@@ -73,22 +73,20 @@ def send_image(recipient_id: str, image_url: str):
 
 # ── SIROC AD FLOW ─────────────────────────────────────────────────────────────
 def process_siroc_ad(sender_id: str):
-    """
-    Flow cố định cho khách click quảng cáo Siroc.
-    Chạy 1 lần duy nhất per user — sau đó dừng hẳn.
-    """
     try:
-        time.sleep(5)
+        time.sleep(5)  # chờ trước khi bắt đầu
 
         bot_sending.add(sender_id)
 
         # Bước 1 — Chào
         send_text(sender_id, SIROC_GREETING)
-        time.sleep(1)
+        time.sleep(2)  # 2s delay
 
-        # Bước 2 — Product card + giới thiệu
+        # Bước 2 — Gửi ảnh
         send_image(sender_id, SIROC_PRODUCT_CARD)
-        time.sleep(1)
+        time.sleep(5)  # 5s delay
+
+        # Bước 3 — Giới thiệu
         send_text(sender_id, SIROC_INTRO)
 
         replied_users.add(sender_id)
@@ -100,7 +98,6 @@ def process_siroc_ad(sender_id: str):
     except Exception as e:
         print(f"process_siroc_ad error: {e}")
         bot_sending.discard(sender_id)
-
 
 # ── WEBHOOK VERIFY ────────────────────────────────────────────────────────────
 @app.route("/webhook", methods=["GET"])
