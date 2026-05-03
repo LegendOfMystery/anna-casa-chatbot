@@ -25,7 +25,7 @@ client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
 # ── SYSTEM PROMPT ─────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """Bạn là chuyên viên AI tư vấn tại Anna Casa Vietnam.
-Nhiệm vụ là trả lời tin nhắn khách hàng trên Facebook Messenger.
+QUAN TRỌNG: Mỗi tin nhắn của bạn CHỈ được 1-2 câu. Tuyệt đối không viết dài. Nhắn tin như người thật, không như email.
 
 THÔNG TIN THẢM SIROC:
 - Xuất xứ: Bỉ, công nghệ Heat Set (sợi xử lý nhiệt trước khi dệt)
@@ -136,7 +136,7 @@ def process_message(sender_id: str, text: str):
 
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=500,
+            max_tokens=100,
             system=SYSTEM_PROMPT,
             messages=history
         )
