@@ -108,7 +108,7 @@ function addMessage(msg) {
       <span class="msg-time">${formatTime(msg.time)}</span>
     </div>
     <div class="msg-text">${msg.text}</div>
-    <a class="msg-link" href="https://www.facebook.com/messages/t/${msg.sender_id}" target="_blank">Mở Facebook Messenger</a>
+    <a class="msg-link" href="https://business.facebook.com/latest/inbox/all/?asset_id=109625643735887&mailbox_id=109625643735887&selected_item_id=${msg.sender_id}&thread_type=FB_MESSAGE" target="_blank">Mở Facebook Messenger</a>
   `;
   feed.insertBefore(div, feed.firstChild);
 
