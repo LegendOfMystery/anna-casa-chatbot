@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Anna Casa — Tin nhắn</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f4f0; min-height: 100vh; }
+
+  .header { background: #fff; border-bottom: 1px solid #e8e6e0; padding: 1rem 1.5rem; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; }
+  .header h1 { font-size: 16px; font-weight: 600; color: #1a1a1a; }
+  .header-right { display: flex; align-items: center; gap: 12px; }
+
+  .status { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #888; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #ccc; }
+  .dot.live { background: #1D9E75; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+  .badge { background: #D85A30; color: #fff; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; display: none; }
+
+  .start-btn { background: #1a1a1a; color: #fff; border: none; padding: 7px 16px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; }
+  .start-btn:disabled { background: #1D9E75; cursor: default; }
+
+  .feed { max-width: 600px; margin: 1.5rem auto; padding: 0 1rem; display: flex; flex-direction: column; gap: 10px; }
+
+  .empty { text-align: center; color: #aaa; font-size: 14px; margin-top: 4rem; }
+
+  .msg { background: #fff; border-radius: 12px; padding: 1rem 1.25rem; border: 1px solid #ece9e3; animation: slidein 0.25s ease; }
+  @keyframes slidein { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
+  .msg-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .msg-name { font-size: 14px; font-weight: 600; color: #1a1a1a; }
+  .msg-time { font-size: 12px; color: #aaa; }
+  .msg-text { font-size: 14px; color: #333; line-height: 1.5; }
+  .msg-link { font-size: 12px; color: #1D9E75; text-decoration: none; margin-top: 6px; display: inline-block; }
+  .msg-link:hover { text-decoration: underline; }
+
+  .clear-btn { background: none; border: 1px solid #e0ddd6; color: #888; padding: 6px 14px; border-radius: 8px; font-size: 12px; cursor: pointer; }
+  .clear-btn:hover { background: #f5f4f0; }
+
+  .toolbar { max-width: 600px; margin: 0 auto 0.5rem; padding: 0 1rem; display: flex; justify-content: flex-end; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Anna Casa &nbsp;<span class="badge" id="badge">0</span></h1>
+  <div class="header-right">
+    <div class="status" id="status">
+      <div class="dot" id="dot"></div>
+      <span id="status-text">Chưa bật</span>
+    </div>
+    <button class="start-btn" id="start-btn" onclick="startListening()">Bật thông báo</button>
+  </div>
+</div>
+
+<div class="toolbar" id="toolbar" style="display:none">
+  <button class="clear-btn" onclick="clearAll()">Xoá tất cả</button>
+</div>
+
+<div class="feed" id="feed">
+  <p class="empty" id="empty">Nhấn "Bật thông báo" để bắt đầu nhận tin nhắn.</p>
+</div>
+
+<script>
+let listening = false;
+let lastTime = Math.floor(Date.now() / 1000) - 5;
+let unread = 0;
+let pollInterval = null;
+
+function beep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.connect(g);
+    g.connect(ctx.destination);
+    o.frequency.value = 900;
+    o.type = 'sine';
+    g.gain.setValueAtTime(0.25, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+    o.start(ctx.currentTime);
+    o.stop(ctx.currentTime + 0.5);
+  } catch(e) {}
+}
+
+function formatTime(ts) {
+  const d = new Date(ts * 1000);
+  return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
+}
+
+function addMessage(msg) {
+  document.getElementById('empty').style.display = 'none';
+  document.getElementById('toolbar').style.display = 'flex';
+
+  unread++;
+  const badge = document.getElementById('badge');
+  badge.textContent = unread;
+  badge.style.display = 'inline-block';
+  document.title = `(${unread}) Anna Casa — Tin nhắn`;
+
+  const feed = document.getElementById('feed');
+  const div = document.createElement('div');
+  div.className = 'msg';
+  div.innerHTML = `
+    <div class="msg-header">
+      <span class="msg-name">${msg.name}</span>
+      <span class="msg-time">${formatTime(msg.time)}</span>
+    </div>
+    <div class="msg-text">${msg.text}</div>
+    <a class="msg-link" href="https://www.facebook.com/messages/t/${msg.sender_id}" target="_blank">Mở Facebook Messenger</a>
+  `;
+  feed.insertBefore(div, feed.firstChild);
+
+  beep();
+
+  if (Notification.permission === 'granted') {
+    const n = new Notification(`${msg.name} nhắn tin`, {
+      body: msg.text,
+      icon: '/static/icon.png',
+      tag: msg.id
+    });
+    n.onclick = () => {
+      window.open(`https://www.facebook.com/messages/t/${msg.sender_id}`, '_blank');
+    };
+  }
+}
+
+async function poll() {
+  try {
+    const res = await fetch(`/api/messages?since=${lastTime}`);
+    const msgs = await res.json();
+    if (msgs.length > 0) {
+      lastTime = msgs[0].time;
+      msgs.forEach(addMessage);
+    }
+  } catch(e) {
+    console.log('Poll error:', e);
+  }
+}
+
+async function startListening() {
+  const btn = document.getElementById('start-btn');
+  btn.disabled = true;
+  btn.textContent = 'Đang bật...';
+
+  if (Notification.permission === 'default') {
+    await Notification.requestPermission();
+  }
+
+  listening = true;
+  document.getElementById('dot').classList.add('live');
+  document.getElementById('status-text').textContent = 'Đang lắng nghe';
+  btn.textContent = 'Đang hoạt động';
+
+  lastTime = Math.floor(Date.now() / 1000) - 2;
+  pollInterval = setInterval(poll, 5000);
+  poll();
+}
+
+function clearAll() {
+  unread = 0;
+  document.getElementById('badge').style.display = 'none';
+  document.title = 'Anna Casa — Tin nhắn';
+  const feed = document.getElementById('feed');
+  feed.innerHTML = '<p class="empty" id="empty" style="display:block">Chưa có tin nhắn nào.</p>';
+  document.getElementById('toolbar').style.display = 'none';
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    unread = 0;
+    document.getElementById('badge').style.display = 'none';
+    document.title = 'Anna Casa — Tin nhắn';
+  }
+});
+</script>
+</body>
+</html>
