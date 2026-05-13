@@ -1,12 +1,13 @@
 """
 ANNA CASA AI CHATBOT
 Stack: Python + Flask + Claude API + Google Sheets + Meta Webhook
-Logic: Chỉ reply khi khách hỏi về thảm. Dừng khi sales reply.
+Features: Vision (ảnh khách gửi), Google Sheets product lookup, bot toggle
 """
 
 import os
 import re
 import time
+import base64
 import threading
 import requests
 from flask import Flask, request, jsonify, send_from_directory
@@ -29,12 +30,11 @@ client = Anthropic(api_key=ANTHROPIC_API_KEY)
 processed_messages: set = set()
 bot_sending: set = set()
 human_mode: set = set()
-human_names: dict[str, str] = {}  # sender_id -> name
+human_names: dict[str, str] = {}
 greeted_users: set = set()
 conversations: dict[str, list] = {}
 notification_feed = deque(maxlen=100)
-
-bot_enabled = True  # Global toggle — sales bật/tắt từ web
+bot_enabled = True
 
 
 def is_human_handling(sender_id): return sender_id in human_mode
@@ -48,26 +48,15 @@ def save_message(sender_id, role, content):
         conversations[sender_id] = conversations[sender_id][-20:]
 
 
-# ── KEYWORDS ──────────────────────────────────────────────────────────────────
-RUG_KEYWORDS = [
-    "thảm", "tham", "carpet", "rug", "siroc", "thảm bỉ", "thảm len",
-    "thảm tròn", "thảm vuông", "thảm phòng khách", "thảm phòng ngủ",
-    "thảm trải sàn", "kích thước thảm", "giá thảm", "mua thảm",
-    "thảm màu", "thảm họa tiết", "thảm bền", "chất liệu thảm"
-]
-
+# ── ESCALATE TRIGGERS ─────────────────────────────────────────────────────────
 ESCALATE_TRIGGERS = [
-    r'\b0[0-9]{9}\b',           # phone number
-    r'\b\+84[0-9]{9}\b',        # phone with +84
+    r'\b0[0-9]{9}\b',
+    r'\b\+84[0-9]{9}\b',
     r'hoàn tiền', r'hoàn trả',
     r'hủy đơn', r'huỷ đơn',
     r'khiếu nại', r'phàn nàn',
     r'giảm giá', r'discount',
 ]
-
-def is_rug_question(text: str) -> bool:
-    text_lower = text.lower()
-    return any(k in text_lower for k in RUG_KEYWORDS)
 
 def needs_escalate(text: str) -> bool:
     text_lower = text.lower()
@@ -76,31 +65,26 @@ def needs_escalate(text: str) -> bool:
 
 # ── GOOGLE SHEETS ─────────────────────────────────────────────────────────────
 sheet_cache = {"data": [], "last_updated": 0}
-CACHE_TTL = 300  # 5 phút
+CACHE_TTL = 300
 
 def fetch_rug_products() -> list[dict]:
     now = time.time()
     if now - sheet_cache["last_updated"] < CACHE_TTL and sheet_cache["data"]:
         return sheet_cache["data"]
-
     try:
         url = f"https://sheets.googleapis.com/v4/spreadsheets/{SHEET_ID}/values/A:K?key={GOOGLE_API_KEY}"
         res = requests.get(url, timeout=10)
-        data = res.json()
-        rows = data.get("values", [])
+        rows = res.json().get("values", [])
         if not rows:
             return sheet_cache["data"]
-
         headers = rows[0]
         products = []
         for row in rows[1:]:
             row_padded = row + [""] * (len(headers) - len(row))
             p = dict(zip(headers, row_padded))
-            # Chỉ lấy sản phẩm thuộc danh mục Thảm
             if "thảm" in str(p.get("Danh mục", "")).lower() or \
                "thảm" in str(p.get("Tên sản phẩm", "")).lower():
                 products.append(p)
-
         sheet_cache["data"] = products
         sheet_cache["last_updated"] = now
         print(f"[SHEETS] Loaded {len(products)} rug products")
@@ -115,7 +99,11 @@ def format_products_for_claude(products: list[dict]) -> str:
         return "Không có dữ liệu sản phẩm."
     lines = []
     for p in products:
-        line = f"- {p.get('Tên sản phẩm','')} | Danh mục: {p.get('Danh mục','')} | Giá: {p.get('Giá','')} | Kích thước: {p.get('Kích thước','')} | Chất liệu: {p.get('Chất liệu','')} | Màu/Họa tiết: {p.get('Màu / Họa tiết','')} | Xuất xứ: {p.get('Xuất xứ','')} | Bảo hành: {p.get('Bảo hành','')} | Link: {p.get('Link sản phẩm','')}"
+        line = (f"- {p.get('Tên sản phẩm','')} | Danh mục: {p.get('Danh mục','')} | "
+                f"Giá: {p.get('Giá','')} | Kích thước: {p.get('Kích thước','')} | "
+                f"Chất liệu: {p.get('Chất liệu','')} | Màu/Họa tiết: {p.get('Màu / Họa tiết','')} | "
+                f"Xuất xứ: {p.get('Xuất xứ','')} | Bảo hành: {p.get('Bảo hành','')} | "
+                f"Link: {p.get('Link sản phẩm','')}")
         lines.append(line)
     return "\n".join(lines)
 
@@ -128,8 +116,9 @@ NHIỆM VỤ: Tư vấn về thảm. Đọc toàn bộ lịch sử cuộc trò c
 KHI NÀO REPLY:
 - Khách hỏi bất cứ gì liên quan đến thảm → reply
 - Khách đang trong cuộc trò chuyện về thảm và hỏi thêm (kể cả không nhắc từ "thảm") → reply
-- Khách hỏi về sản phẩm khác (sofa, đèn, giường...) mà chưa từng hỏi thảm → trả về [SKIP]
-- Tin nhắn từ lead form, chào hỏi chung chung không rõ ý định → trả về [SKIP]
+- Khách gửi hình → phân tích và gợi ý thảm tương tự
+- Khách hỏi về sản phẩm khác mà chưa từng hỏi thảm → trả về [SKIP]
+- Tin nhắn chào hỏi chung chung không rõ ý định → trả về [SKIP]
 
 THÔNG TIN SHOWROOM:
 - Địa chỉ: 12 Nguyễn Ư Dĩ, Thảo Điền, Q2, TP.HCM
@@ -143,13 +132,20 @@ CÁCH TRẢ LỜI:
 - Không hỏi lại những gì khách đã nói rõ
 - Cuối tin CHỈ hỏi đúng 1 câu — KHÔNG BAO GIỜ hỏi 2 câu trong 1 tin
 - Khi khách hỏi giá: báo thẳng từ dữ liệu sản phẩm
-- Khi khách hỏi hình: gửi link sản phẩm luôn
+- Khi gợi ý sản phẩm: kèm link sản phẩm luôn
+- Không dùng dấu "/" ở bất kỳ đâu
 
-THỨ TỰ HỎI KHI TƯ VẤN — tuân theo đúng thứ tự này, hỏi từng câu một:
-1. Hỏi kích thước thảm (dài x rộng) nếu chưa biết
-2. Hỏi màu sắc ưu tiên nếu chưa biết
-3. Gợi ý sản phẩm phù hợp từ dữ liệu
-KHÔNG hỏi về style, phong cách, hay bất cứ thứ gì khác ngoài danh sách trên
+THỨ TỰ HỎI KHI TƯ VẤN — hỏi từng câu một theo thứ tự:
+1. Hỏi kích thước (nếu chưa biết): "Anh chị cần kích thước thảm như nào ạ? Bên em phổ biến dòng 1m6x2m3 và 2mx2m9."
+2. Hỏi màu sắc ưu tiên (nếu chưa biết)
+3. Gợi ý sản phẩm phù hợp kèm link
+KHÔNG hỏi về style, phong cách, không gian hay bất cứ thứ gì khác
+
+KHI KHÁCH GỬI HÌNH:
+- Phân tích màu sắc và họa tiết trong ảnh
+- Tìm trong dữ liệu sản phẩm những mẫu thảm có màu và họa tiết tương tự
+- Gợi ý 1-2 sản phẩm gần nhất kèm link
+- Nếu không có mẫu tương tự: "Dạ mẫu này bên em chưa có, anh chị cho em biết kích thước cần dùng để em tư vấn mẫu gần nhất nha."
 
 KHI NÀO ESCALATE:
 Nếu khách để lại số điện thoại, yêu cầu hoàn tiền, hủy đơn, hoặc giảm giá:
@@ -160,10 +156,13 @@ TUYỆT ĐỐI KHÔNG:
 - Bịa thông tin không có trong dữ liệu sản phẩm
 - Tư vấn sản phẩm không phải thảm
 - Hỏi lại những gì khách đã nói
-- Dùng dấu "/" ở bất kỳ đâu — thay bằng "và" hoặc "hoặc" hoặc "anh chị"
+- Dùng dấu "/" ở bất kỳ đâu
 
 Dữ liệu sản phẩm thảm hiện có:
 {product_data}"""
+
+GREETING_TEMPLATE = "Anna Casa xin chào anh chị {name}, em là Trâm sẽ hỗ trợ mình nha."
+GREETING_FIRST_Q  = "Anh chị cần kích thước thảm như nào ạ? Bên em phổ biến dòng 1m6x2m3 và 2mx2m9."
 
 
 # ── SEND HELPERS ──────────────────────────────────────────────────────────────
@@ -184,6 +183,18 @@ def get_sender_name(sender_id):
         return ""
 
 
+def download_image_as_base64(url: str) -> str | None:
+    """Download ảnh từ Facebook và convert sang base64."""
+    try:
+        # Facebook yêu cầu access token để download ảnh
+        res = requests.get(url, headers={"Authorization": f"Bearer {META_PAGE_TOKEN}"}, timeout=15)
+        if res.status_code == 200:
+            return base64.standard_b64encode(res.content).decode("utf-8")
+    except Exception as e:
+        print(f"download_image failed: {e}")
+    return None
+
+
 # ── ESCALATE ──────────────────────────────────────────────────────────────────
 def notify_escalate(sender_id, sender_name, message):
     if not ESCALATE_NOTIFY_URL:
@@ -191,20 +202,19 @@ def notify_escalate(sender_id, sender_name, message):
         return
     try:
         requests.post(ESCALATE_NOTIFY_URL, json={
-            "text": f"⚠️ CẦN HỖ TRỢ\nKhách: {sender_name}\nID: {sender_id}\nTin: {message}"
+            "text": f"CAN HO TRO\nKhach: {sender_name}\nID: {sender_id}\nTin: {message}"
         }, timeout=5)
     except Exception as e:
         print(f"Escalate failed: {e}")
 
 
-# ── PROCESS MESSAGE ───────────────────────────────────────────────────────────
+# ── PROCESS TEXT MESSAGE ──────────────────────────────────────────────────────
 def process_message(sender_id, text):
     try:
         sender_name = get_sender_name(sender_id)
         human_names[sender_id] = sender_name
         first_name = sender_name.split()[-1] if sender_name else ""
 
-        # Thêm vào notification feed
         notification_feed.appendleft({
             "name": sender_name or "Khách",
             "sender_id": sender_id,
@@ -212,7 +222,7 @@ def process_message(sender_id, text):
             "time": int(time.time())
         })
 
-        # Escalate check — rule cứng, không cần AI
+        # Escalate check — rule cứng
         if needs_escalate(text):
             time.sleep(5)
             if is_human_handling(sender_id): return
@@ -223,35 +233,43 @@ def process_message(sender_id, text):
             bot_sending.discard(sender_id)
             return
 
-        # Fetch product data
+        is_first = sender_id not in greeted_users
+
+        # Nếu là tin đầu tiên — chào + câu hỏi cố định, không cần gọi Claude
+        if is_first:
+            greeted_users.add(sender_id)
+            save_message(sender_id, "user", text)
+            greeting = GREETING_TEMPLATE.format(name=first_name)
+            save_message(sender_id, "assistant", f"{greeting} {GREETING_FIRST_Q}")
+            time.sleep(5)
+            if is_human_handling(sender_id): return
+            bot_sending.add(sender_id)
+            send_text(sender_id, greeting)
+            time.sleep(1)
+            send_text(sender_id, GREETING_FIRST_Q)
+            time.sleep(10)
+            bot_sending.discard(sender_id)
+            return
+
+        # Các tin tiếp theo — Claude xử lý
         products = fetch_rug_products()
         product_data = format_products_for_claude(products)
         system = SYSTEM_BASE.format(product_data=product_data)
 
-        # Lời chào lần đầu
-        is_first = sender_id not in greeted_users
-        if is_first:
-            greeted_users.add(sender_id)
-            greeting_note = f"\n\nĐây là tin nhắn ĐẦU TIÊN của khách. Bắt đầu bằng: 'Anna Casa xin chào anh chị {first_name}, em là Trâm sẽ hỗ trợ mình nha.' Sau đó trả lời câu hỏi của khách trong cùng 1 tin nhắn."
-            system += greeting_note
-
-        # Claude đọc toàn bộ history và tự quyết định reply hay không
         save_message(sender_id, "user", text)
         history = get_history(sender_id)
 
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=80,
+            max_tokens=100,
             system=system,
             messages=history
         )
 
         reply = response.content[0].text
 
-        # Claude trả [SKIP] → không reply gì hết
         if "[SKIP]" in reply:
-            print(f"[SKIP] Claude decided not to reply for {sender_id}: {text[:50]}")
-            # Xóa tin vừa lưu khỏi history vì không reply
+            print(f"[SKIP] Claude decided not to reply: {text[:50]}")
             if sender_id in conversations and conversations[sender_id]:
                 conversations[sender_id].pop()
             return
@@ -263,31 +281,100 @@ def process_message(sender_id, text):
         if needs_esc:
             notify_escalate(sender_id, sender_name, text)
 
-        # Chờ 5s rồi reply
         time.sleep(5)
-        if is_human_handling(sender_id):
-            print(f"[HANDOFF] Cancelled for {sender_id}")
-            return
+        if is_human_handling(sender_id): return
 
         bot_sending.add(sender_id)
-
-        # Tin đầu tiên → tách câu chào thành tin riêng
-        if is_first:
-            parts = re.split(r'(?<=nha\.)\s+|(?<=nha,)\s+', clean_reply, maxsplit=1)
-            if len(parts) == 2:
-                send_text(sender_id, parts[0].strip())
-                time.sleep(1)
-                send_text(sender_id, parts[1].strip())
-            else:
-                send_text(sender_id, clean_reply)
-        else:
-            send_text(sender_id, clean_reply)
-
+        send_text(sender_id, clean_reply)
         time.sleep(10)
         bot_sending.discard(sender_id)
 
     except Exception as e:
         print(f"process_message error: {e}")
+        bot_sending.discard(sender_id)
+
+
+# ── PROCESS IMAGE MESSAGE ─────────────────────────────────────────────────────
+def process_image(sender_id, image_url):
+    try:
+        sender_name = get_sender_name(sender_id)
+        human_names[sender_id] = sender_name
+        first_name = sender_name.split()[-1] if sender_name else ""
+
+        notification_feed.appendleft({
+            "name": sender_name or "Khách",
+            "sender_id": sender_id,
+            "text": "[Gửi hình]",
+            "time": int(time.time())
+        })
+
+        # Tin đầu tiên với ảnh — chào trước
+        is_first = sender_id not in greeted_users
+        if is_first:
+            greeted_users.add(sender_id)
+            greeting = GREETING_TEMPLATE.format(name=first_name)
+            time.sleep(5)
+            if is_human_handling(sender_id): return
+            bot_sending.add(sender_id)
+            send_text(sender_id, greeting)
+            time.sleep(1)
+            bot_sending.discard(sender_id)
+
+        # Download ảnh
+        img_b64 = download_image_as_base64(image_url)
+        if not img_b64:
+            send_text(sender_id, "Dạ em không xem được hình, anh chị gửi lại thử nha.")
+            return
+
+        products = fetch_rug_products()
+        product_data = format_products_for_claude(products)
+        system = SYSTEM_BASE.format(product_data=product_data)
+
+        # Gọi Claude với ảnh
+        vision_message = {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": img_b64
+                    }
+                },
+                {
+                    "type": "text",
+                    "text": "Khách gửi hình này. Phân tích màu sắc và họa tiết, sau đó tìm trong dữ liệu sản phẩm những mẫu thảm tương tự và gợi ý cho khách."
+                }
+            ]
+        }
+
+        history = get_history(sender_id) + [vision_message]
+
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",  # Dùng Sonnet cho vision
+            max_tokens=150,
+            system=system,
+            messages=history
+        )
+
+        reply = response.content[0].text
+        clean_reply = reply.replace("[ESCALATE]", "").replace("[SKIP]", "").strip()
+
+        # Lưu vào history dạng text
+        save_message(sender_id, "user", "[Khách gửi hình]")
+        save_message(sender_id, "assistant", clean_reply)
+
+        time.sleep(3)
+        if is_human_handling(sender_id): return
+
+        bot_sending.add(sender_id)
+        send_text(sender_id, clean_reply)
+        time.sleep(10)
+        bot_sending.discard(sender_id)
+
+    except Exception as e:
+        print(f"process_image error: {e}")
         bot_sending.discard(sender_id)
 
 
@@ -316,15 +403,15 @@ def receive_webhook():
             text       = message.get("text", "")
             message_id = message.get("mid", "")
             is_echo    = message.get("is_echo", False)
+            attachments = message.get("attachments", [])
 
-            if not sender_id or not text:
+            if not sender_id:
                 continue
 
             if is_echo:
                 customer_id = event.get("recipient", {}).get("id")
                 if not customer_id: continue
-                if customer_id in bot_sending:
-                    continue
+                if customer_id in bot_sending: continue
                 human_mode.add(customer_id)
                 print(f"[HANDOFF] Sales replied for {customer_id}")
                 continue
@@ -335,11 +422,26 @@ def receive_webhook():
                 processed_messages.add(message_id)
 
             if not bot_enabled:
-                print(f"[SKIP] Bot globally disabled")
                 continue
 
             if is_human_handling(sender_id):
-                print(f"[SKIP] Human mode for {sender_id}")
+                continue
+
+            # Xử lý ảnh
+            if attachments:
+                for att in attachments:
+                    if att.get("type") == "image":
+                        image_url = att.get("payload", {}).get("url", "")
+                        if image_url:
+                            threading.Thread(
+                                target=process_image,
+                                args=(sender_id, image_url),
+                                daemon=True
+                            ).start()
+                continue
+
+            # Xử lý text
+            if not text:
                 continue
 
             threading.Thread(
@@ -354,22 +456,15 @@ def receive_webhook():
 # ── API ENDPOINTS ─────────────────────────────────────────────────────────────
 @app.route("/api/status")
 def api_status():
-    global bot_enabled
-    human_list = [
-        {"id": sid, "name": human_names.get(sid, sid)}
-        for sid in human_mode
-    ]
-    return jsonify({
-        "bot_enabled": bot_enabled,
-        "human_mode": human_list
-    })
+    human_list = [{"id": sid, "name": human_names.get(sid, sid)} for sid in human_mode]
+    return jsonify({"bot_enabled": bot_enabled, "human_mode": human_list})
 
 
 @app.route("/api/toggle", methods=["POST"])
 def api_toggle():
     global bot_enabled
     bot_enabled = not bot_enabled
-    print(f"[TOGGLE] Bot {'enabled' if bot_enabled else 'disabled'} globally")
+    print(f"[TOGGLE] Bot {'enabled' if bot_enabled else 'disabled'}")
     return jsonify({"bot_enabled": bot_enabled})
 
 
@@ -380,7 +475,6 @@ def api_reactivate():
     if cid:
         human_mode.discard(cid)
         greeted_users.discard(cid)
-        print(f"[REACTIVATE] Bot reactivated for {cid}")
     return jsonify({"ok": True})
 
 
