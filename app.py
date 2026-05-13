@@ -149,6 +149,8 @@ TUYỆT ĐỐI KHÔNG:
 - Bịa thông tin không có trong dữ liệu sản phẩm
 - Tư vấn sản phẩm không phải thảm
 - Hỏi lại những gì khách đã nói
+- Dùng dấu "/" trong câu trả lời — thay bằng "và" hoặc "hoặc"
+- Viết "anh/chị" — luôn viết "anh chị" không có dấu gạch chéo
 
 Dữ liệu sản phẩm thảm hiện có:
 {product_data}"""
@@ -225,7 +227,7 @@ def process_message(sender_id, text):
         is_first = sender_id not in greeted_users
         if is_first:
             greeted_users.add(sender_id)
-            greeting_note = f"\n\nĐây là tin nhắn ĐẦU TIÊN của khách. Bắt đầu bằng: 'Anna Casa xin chào anh/chị {first_name}, em là Trâm sẽ hỗ trợ mình nha.' Sau đó trả lời câu hỏi của khách trong cùng 1 tin nhắn."
+            greeting_note = f"\n\nĐây là tin nhắn ĐẦU TIÊN của khách. Bắt đầu bằng: 'Anna Casa xin chào anh chị {first_name}, em là Trâm sẽ hỗ trợ mình nha.' Sau đó trả lời câu hỏi của khách trong cùng 1 tin nhắn."
             system += greeting_note
 
         # Claude
@@ -254,7 +256,20 @@ def process_message(sender_id, text):
             return
 
         bot_sending.add(sender_id)
-        send_text(sender_id, clean_reply)
+
+        # Nếu là tin đầu tiên → tách câu chào thành tin riêng
+        if is_first:
+            # Tìm câu chào (kết thúc bằng "nha." hoặc "nha,")
+            parts = re.split(r'(?<=nha\.)\s+|(?<=nha,)\s+', clean_reply, maxsplit=1)
+            if len(parts) == 2:
+                send_text(sender_id, parts[0].strip())
+                time.sleep(1)
+                send_text(sender_id, parts[1].strip())
+            else:
+                send_text(sender_id, clean_reply)
+        else:
+            send_text(sender_id, clean_reply)
+
         time.sleep(10)
         bot_sending.discard(sender_id)
 
