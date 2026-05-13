@@ -3,177 +3,159 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Anna Casa — Tin nhắn</title>
+<title>Anna Casa — Điều khiển Bot</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f4f0; min-height: 100vh; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f4f0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 2rem 1rem; }
 
-  .header { background: #fff; border-bottom: 1px solid #e8e6e0; padding: 1rem 1.5rem; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; }
-  .header h1 { font-size: 16px; font-weight: 600; color: #1a1a1a; }
-  .header-right { display: flex; align-items: center; gap: 12px; }
+  .logo { font-size: 13px; font-weight: 600; letter-spacing: 0.12em; color: #888; text-transform: uppercase; margin-bottom: 2.5rem; }
 
-  .status { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #888; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: #ccc; }
-  .dot.live { background: #1D9E75; animation: pulse 2s infinite; }
+  .card { background: #fff; border-radius: 16px; border: 1px solid #e8e6e0; padding: 2rem; width: 100%; max-width: 400px; text-align: center; }
+
+  .status-label { font-size: 12px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: #aaa; margin-bottom: 0.75rem; }
+
+  .status-indicator { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 2rem; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; background: #ccc; transition: background 0.3s; }
+  .dot.on { background: #1D9E75; animation: pulse 2s infinite; }
+  .dot.off { background: #D85A30; animation: none; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+  .status-text { font-size: 22px; font-weight: 600; color: #1a1a1a; }
 
-  .badge { background: #D85A30; color: #fff; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; display: none; }
+  .toggle-btn { width: 100%; padding: 1rem; border: none; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.2s; margin-bottom: 1rem; }
+  .toggle-btn.turn-off { background: #1a1a1a; color: #fff; }
+  .toggle-btn.turn-off:hover { background: #333; }
+  .toggle-btn.turn-on { background: #1D9E75; color: #fff; }
+  .toggle-btn.turn-on:hover { background: #188f68; }
+  .toggle-btn:disabled { opacity: 0.5; cursor: default; }
 
-  .start-btn { background: #1a1a1a; color: #fff; border: none; padding: 7px 16px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; }
-  .start-btn:disabled { background: #1D9E75; cursor: default; }
+  .note { font-size: 12px; color: #aaa; line-height: 1.6; margin-top: 0.5rem; }
 
-  .feed { max-width: 600px; margin: 1.5rem auto; padding: 0 1rem; display: flex; flex-direction: column; gap: 10px; }
+  .divider { border: none; border-top: 1px solid #f0ede8; margin: 1.5rem 0; }
 
-  .empty { text-align: center; color: #aaa; font-size: 14px; margin-top: 4rem; }
+  .section-title { font-size: 12px; font-weight: 600; color: #aaa; text-transform: uppercase; letter-spacing: 0.08em; text-align: left; margin-bottom: 0.75rem; }
 
-  .msg { background: #fff; border-radius: 12px; padding: 1rem 1.25rem; border: 1px solid #ece9e3; animation: slidein 0.25s ease; }
-  @keyframes slidein { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
-  .msg-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-  .msg-name { font-size: 14px; font-weight: 600; color: #1a1a1a; }
-  .msg-time { font-size: 12px; color: #aaa; }
-  .msg-text { font-size: 14px; color: #333; line-height: 1.5; }
-  .msg-link { font-size: 12px; color: #1D9E75; text-decoration: none; margin-top: 6px; display: inline-block; }
-  .msg-link:hover { text-decoration: underline; }
+  .customer-list { text-align: left; }
+  .customer-item { display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 0; border-bottom: 1px solid #f5f4f0; }
+  .customer-item:last-child { border-bottom: none; }
+  .customer-name { font-size: 13px; color: #333; }
+  .customer-status { font-size: 11px; color: #D85A30; font-weight: 500; }
+  .reactivate-btn { font-size: 11px; color: #1D9E75; background: none; border: 1px solid #1D9E75; border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+  .reactivate-btn:hover { background: #1D9E75; color: #fff; }
 
-  .clear-btn { background: none; border: 1px solid #e0ddd6; color: #888; padding: 6px 14px; border-radius: 8px; font-size: 12px; cursor: pointer; }
-  .clear-btn:hover { background: #f5f4f0; }
+  .empty-customers { font-size: 13px; color: #aaa; text-align: center; padding: 1rem 0; }
 
-  .toolbar { max-width: 600px; margin: 0 auto 0.5rem; padding: 0 1rem; display: flex; justify-content: flex-end; }
+  .last-updated { font-size: 11px; color: #ccc; margin-top: 1.5rem; }
 </style>
 </head>
 <body>
 
-<div class="header">
-  <h1>Anna Casa &nbsp;<span class="badge" id="badge">0</span></h1>
-  <div class="header-right">
-    <div class="status" id="status">
-      <div class="dot" id="dot"></div>
-      <span id="status-text">Chưa bật</span>
-    </div>
-    <button class="start-btn" id="start-btn" onclick="startListening()">Bật thông báo</button>
+<div class="logo">Anna Casa</div>
+
+<div class="card">
+  <div class="status-label">Trạng thái bot</div>
+  <div class="status-indicator">
+    <div class="dot" id="dot"></div>
+    <div class="status-text" id="status-text">Đang tải...</div>
   </div>
-</div>
 
-<div class="toolbar" id="toolbar" style="display:none">
-  <button class="clear-btn" onclick="clearAll()">Xoá tất cả</button>
-</div>
+  <button class="toggle-btn" id="toggle-btn" onclick="toggleBot()" disabled>...</button>
+  <p class="note" id="note"></p>
 
-<div class="feed" id="feed">
-  <p class="empty" id="empty">Nhấn "Bật thông báo" để bắt đầu nhận tin nhắn.</p>
+  <hr class="divider">
+
+  <div class="section-title">Khách đang do sales phụ trách</div>
+  <div class="customer-list" id="customer-list">
+    <p class="empty-customers">Không có</p>
+  </div>
+
+  <div class="last-updated" id="last-updated"></div>
 </div>
 
 <script>
-let listening = false;
-let lastTime = Math.floor(Date.now() / 1000) - 5;
-let unread = 0;
-let pollInterval = null;
+let botOn = null;
+let humanList = [];
 
-function beep() {
+async function fetchStatus() {
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.connect(g);
-    g.connect(ctx.destination);
-    o.frequency.value = 900;
-    o.type = 'sine';
-    g.gain.setValueAtTime(0.25, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-    o.start(ctx.currentTime);
-    o.stop(ctx.currentTime + 0.5);
-  } catch(e) {}
-}
-
-function formatTime(ts) {
-  const d = new Date(ts * 1000);
-  return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
-}
-
-function addMessage(msg) {
-  document.getElementById('empty').style.display = 'none';
-  document.getElementById('toolbar').style.display = 'flex';
-
-  unread++;
-  const badge = document.getElementById('badge');
-  badge.textContent = unread;
-  badge.style.display = 'inline-block';
-  document.title = `(${unread}) Anna Casa — Tin nhắn`;
-
-  const feed = document.getElementById('feed');
-  const div = document.createElement('div');
-  div.className = 'msg';
-  div.innerHTML = `
-    <div class="msg-header">
-      <span class="msg-name">${msg.name}</span>
-      <span class="msg-time">${formatTime(msg.time)}</span>
-    </div>
-    <div class="msg-text">${msg.text}</div>
-    <a class="msg-link" href="https://business.facebook.com/latest/inbox/all/?asset_id=109625643735887&mailbox_id=109625643735887&selected_item_id=${msg.sender_id}&thread_type=FB_MESSAGE" target="_blank">Mở Facebook Messenger</a>
-  `;
-  feed.insertBefore(div, feed.firstChild);
-
-  beep();
-
-  if (Notification.permission === 'granted') {
-    const n = new Notification(`${msg.name} nhắn tin`, {
-      body: msg.text,
-      icon: '/static/icon.png',
-      tag: msg.id
-    });
-    n.onclick = () => {
-      window.open(`https://www.facebook.com/messages/t/${msg.sender_id}`, '_blank');
-    };
-  }
-}
-
-async function poll() {
-  try {
-    const res = await fetch(`/api/messages?since=${lastTime}`);
-    const msgs = await res.json();
-    if (msgs.length > 0) {
-      lastTime = msgs[0].time;
-      msgs.forEach(addMessage);
-    }
+    const res = await fetch('/api/status');
+    const data = await res.json();
+    botOn = data.bot_enabled;
+    humanList = data.human_mode || [];
+    render();
+    document.getElementById('last-updated').textContent = 'Cập nhật lúc ' + new Date().toLocaleTimeString('vi-VN');
   } catch(e) {
-    console.log('Poll error:', e);
+    document.getElementById('status-text').textContent = 'Lỗi kết nối';
   }
 }
 
-async function startListening() {
-  const btn = document.getElementById('start-btn');
+function render() {
+  const dot = document.getElementById('dot');
+  const statusText = document.getElementById('status-text');
+  const btn = document.getElementById('toggle-btn');
+  const note = document.getElementById('note');
+
+  dot.className = 'dot ' + (botOn ? 'on' : 'off');
+  statusText.textContent = botOn ? 'Bot đang bật' : 'Bot đang tắt';
+  btn.disabled = false;
+
+  if (botOn) {
+    btn.className = 'toggle-btn turn-off';
+    btn.textContent = 'Tắt bot — Sales trực tiếp';
+    note.textContent = 'Bot đang tự động reply khách hỏi về thảm. Nhấn để tắt và tự tư vấn.';
+  } else {
+    btn.className = 'toggle-btn turn-on';
+    btn.textContent = 'Bật bot — Tự động reply';
+    note.textContent = 'Bot đang tắt. Nhấn để bật lại khi không có người trực.';
+  }
+
+  // Render human list
+  const list = document.getElementById('customer-list');
+  if (humanList.length === 0) {
+    list.innerHTML = '<p class="empty-customers">Không có</p>';
+  } else {
+    list.innerHTML = humanList.map(c => `
+      <div class="customer-item">
+        <div>
+          <div class="customer-name">${c.name || c.id}</div>
+          <div class="customer-status">Sales đang phụ trách</div>
+        </div>
+        <button class="reactivate-btn" onclick="reactivateBot('${c.id}')">Bật bot lại</button>
+      </div>
+    `).join('');
+  }
+}
+
+async function toggleBot() {
+  const btn = document.getElementById('toggle-btn');
   btn.disabled = true;
-  btn.textContent = 'Đang bật...';
-
-  if (Notification.permission === 'default') {
-    await Notification.requestPermission();
+  try {
+    const res = await fetch('/api/toggle', { method: 'POST' });
+    const data = await res.json();
+    botOn = data.bot_enabled;
+    render();
+  } catch(e) {
+    alert('Lỗi kết nối');
+  } finally {
+    btn.disabled = false;
   }
-
-  listening = true;
-  document.getElementById('dot').classList.add('live');
-  document.getElementById('status-text').textContent = 'Đang lắng nghe';
-  btn.textContent = 'Đang hoạt động';
-
-  lastTime = Math.floor(Date.now() / 1000) - 2;
-  pollInterval = setInterval(poll, 5000);
-  poll();
 }
 
-function clearAll() {
-  unread = 0;
-  document.getElementById('badge').style.display = 'none';
-  document.title = 'Anna Casa — Tin nhắn';
-  const feed = document.getElementById('feed');
-  feed.innerHTML = '<p class="empty" id="empty" style="display:block">Chưa có tin nhắn nào.</p>';
-  document.getElementById('toolbar').style.display = 'none';
+async function reactivateBot(customerId) {
+  try {
+    await fetch('/api/reactivate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({customer_id: customerId})
+    });
+    await fetchStatus();
+  } catch(e) {
+    alert('Lỗi');
+  }
 }
 
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) {
-    unread = 0;
-    document.getElementById('badge').style.display = 'none';
-    document.title = 'Anna Casa — Tin nhắn';
-  }
-});
+// Auto refresh mỗi 10s
+fetchStatus();
+setInterval(fetchStatus, 10000);
 </script>
 </body>
 </html>
