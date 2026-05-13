@@ -123,7 +123,13 @@ def format_products_for_claude(products: list[dict]) -> str:
 # ── SYSTEM PROMPT ─────────────────────────────────────────────────────────────
 SYSTEM_BASE = """Bạn là Trâm, chuyên viên tư vấn tại Anna Casa Vietnam — thương hiệu nội thất Quiet Luxury.
 
-NHIỆM VỤ: Chỉ tư vấn về thảm. Không tư vấn sản phẩm khác.
+NHIỆM VỤ: Tư vấn về thảm. Đọc toàn bộ lịch sử cuộc trò chuyện để hiểu context trước khi reply.
+
+KHI NÀO REPLY:
+- Khách hỏi bất cứ gì liên quan đến thảm → reply
+- Khách đang trong cuộc trò chuyện về thảm và hỏi thêm (kể cả không nhắc từ "thảm") → reply
+- Khách hỏi về sản phẩm khác (sofa, đèn, giường...) mà chưa từng hỏi thảm → trả về [SKIP]
+- Tin nhắn từ lead form, chào hỏi chung chung không rõ ý định → trả về [SKIP]
 
 THÔNG TIN SHOWROOM:
 - Địa chỉ: 12 Nguyễn Ư Dĩ, Thảo Điền, Q2, TP.HCM
@@ -202,17 +208,12 @@ def process_message(sender_id, text):
             "time": int(time.time())
         })
 
-        # Chỉ xử lý nếu là câu hỏi về thảm
-        if not is_rug_question(text):
-            print(f"[SKIP] Not a rug question from {sender_id}: {text[:50]}")
-            return
-
-        # Escalate ngay nếu cần
+        # Escalate check — rule cứng, không cần AI
         if needs_escalate(text):
             time.sleep(5)
             if is_human_handling(sender_id): return
             bot_sending.add(sender_id)
-            send_text(sender_id, "Dạ để em chuyển cho bộ phận phụ trách hỗ trợ anh/chị ngay ạ.")
+            send_text(sender_id, "Dạ để em chuyển cho bộ phận phụ trách hỗ trợ anh chị ngay ạ.")
             notify_escalate(sender_id, sender_name, text)
             time.sleep(10)
             bot_sending.discard(sender_id)
@@ -230,7 +231,7 @@ def process_message(sender_id, text):
             greeting_note = f"\n\nĐây là tin nhắn ĐẦU TIÊN của khách. Bắt đầu bằng: 'Anna Casa xin chào anh chị {first_name}, em là Trâm sẽ hỗ trợ mình nha.' Sau đó trả lời câu hỏi của khách trong cùng 1 tin nhắn."
             system += greeting_note
 
-        # Claude
+        # Claude đọc toàn bộ history và tự quyết định reply hay không
         save_message(sender_id, "user", text)
         history = get_history(sender_id)
 
@@ -242,8 +243,17 @@ def process_message(sender_id, text):
         )
 
         reply = response.content[0].text
+
+        # Claude trả [SKIP] → không reply gì hết
+        if "[SKIP]" in reply:
+            print(f"[SKIP] Claude decided not to reply for {sender_id}: {text[:50]}")
+            # Xóa tin vừa lưu khỏi history vì không reply
+            if sender_id in conversations and conversations[sender_id]:
+                conversations[sender_id].pop()
+            return
+
         needs_esc = "[ESCALATE]" in reply
-        clean_reply = reply.replace("[ESCALATE]", "").strip()
+        clean_reply = reply.replace("[ESCALATE]", "").replace("[SKIP]", "").strip()
         save_message(sender_id, "assistant", clean_reply)
 
         if needs_esc:
@@ -257,9 +267,8 @@ def process_message(sender_id, text):
 
         bot_sending.add(sender_id)
 
-        # Nếu là tin đầu tiên → tách câu chào thành tin riêng
+        # Tin đầu tiên → tách câu chào thành tin riêng
         if is_first:
-            # Tìm câu chào (kết thúc bằng "nha." hoặc "nha,")
             parts = re.split(r'(?<=nha\.)\s+|(?<=nha,)\s+', clean_reply, maxsplit=1)
             if len(parts) == 2:
                 send_text(sender_id, parts[0].strip())
