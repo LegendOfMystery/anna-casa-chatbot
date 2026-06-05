@@ -137,9 +137,8 @@ CÁCH TRẢ LỜI:
 
 THỨ TỰ HỎI KHI TƯ VẤN — hỏi từng câu một theo thứ tự:
 1. Hỏi kích thước (nếu chưa biết): "Anh chị cần kích thước thảm như nào ạ? Bên em phổ biến dòng 1m6x2m3 và 2mx2m9."
-2. Hỏi màu sắc ưu tiên (nếu chưa biết)
-3. Gợi ý sản phẩm phù hợp kèm link
-KHÔNG hỏi về style, phong cách, không gian hay bất cứ thứ gì khác
+2. Khi khách chọn size → xác nhận size + thêm [CATALOGUE_1M6] hoặc [CATALOGUE_2MX] vào cuối reply — hệ thống tự gửi PDF và hỏi Zalo
+3. KHÔNG hỏi màu sắc hay bất cứ thứ gì khác sau khi khách chọn size
 
 KHI GỬI CATALOGUE:
 - Khách hỏi size 1m6x2m3 hoặc chọn size đó → thêm [CATALOGUE_1M6] vào cuối reply
@@ -213,8 +212,8 @@ def notify_escalate(sender_id, sender_name, message):
 
 # ── CATALOGUES ───────────────────────────────────────────────────────────────
 CATALOGUES = {
-    "1m6x2m3": "https://drive.google.com/uc?export=download&id=1kQsv0RnLnxFZjhtgKiZAfNcalfuZhw-x",
-    "2mx2m9":  "https://drive.google.com/uc?export=download&id=1ImiR5HnFiojZYoEZJkipxaKUC4OKX7Xv",
+    "1m6x2m3": "https://drive.google.com/uc?export=download&id=1kQsv0RnLnxFZjhtgKiZAfNcalfuZhw-x&confirm=t",
+    "2mx2m9":  "https://drive.google.com/uc?export=download&id=1ImiR5HnFiojZYoEZJkipxaKUC4OKX7Xv&confirm=t",
 }
 
 def send_file(recipient_id, file_url):
@@ -347,9 +346,13 @@ def process_message(sender_id, text):
         if send_cat_1m6:
             time.sleep(1)
             send_file(sender_id, CATALOGUES["1m6x2m3"])
+            time.sleep(1)
+            send_text(sender_id, f"Dạ {pronoun} cho em xin số Zalo để em gửi ảnh thực tế nha.")
         if send_cat_2mx:
             time.sleep(1)
             send_file(sender_id, CATALOGUES["2mx2m9"])
+            time.sleep(1)
+            send_text(sender_id, f"Dạ {pronoun} cho em xin số Zalo để em gửi ảnh thực tế nha.")
 
         time.sleep(10)
         bot_sending.discard(sender_id)
