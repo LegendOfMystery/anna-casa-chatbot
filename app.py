@@ -35,6 +35,7 @@ greeted_users: set = set()
 conversations: dict[str, list] = {}
 notification_feed = deque(maxlen=100)
 bot_enabled = True
+asked_zalo: set = set()  # Đã hỏi Zalo → dừng reply
 
 
 def is_human_handling(sender_id): return sender_id in human_mode
@@ -358,6 +359,7 @@ def process_message(sender_id, text):
             send_file(sender_id, CATALOGUES["1m6x2m3"])
             time.sleep(1)
             send_text(sender_id, f"Dạ {pronoun} cho em Zalo để em gửi mẫu ạ.")
+            asked_zalo.add(sender_id)
         if send_cat_2mx:
             time.sleep(1)
             send_text(sender_id, "Dạ em gửi catalog thảm ạ.")
@@ -365,6 +367,7 @@ def process_message(sender_id, text):
             send_file(sender_id, CATALOGUES["2mx2m9"])
             time.sleep(1)
             send_text(sender_id, f"Dạ {pronoun} cho em Zalo để em gửi mẫu ạ.")
+            asked_zalo.add(sender_id)
 
         time.sleep(10)
         bot_sending.discard(sender_id)
@@ -507,6 +510,10 @@ def receive_webhook():
             if is_human_handling(sender_id):
                 continue
 
+            if sender_id in asked_zalo:
+                print(f"[SKIP] Already asked Zalo for {sender_id}")
+                continue
+
             # Xử lý ảnh
             if attachments:
                 for att in attachments:
@@ -555,6 +562,7 @@ def api_reactivate():
     if cid:
         human_mode.discard(cid)
         greeted_users.discard(cid)
+        asked_zalo.discard(cid)
     return jsonify({"ok": True})
 
 
