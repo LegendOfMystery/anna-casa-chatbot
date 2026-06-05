@@ -137,8 +137,9 @@ CÁCH TRẢ LỜI:
 
 THỨ TỰ HỎI KHI TƯ VẤN — hỏi từng câu một theo thứ tự:
 1. Hỏi kích thước (nếu chưa biết): "Anh chị cần kích thước thảm như nào ạ? Bên em phổ biến dòng 1m6x2m3 và 2mx2m9."
-2. Khi khách chọn size → xác nhận size + thêm [CATALOGUE_1M6] hoặc [CATALOGUE_2MX] vào cuối reply — hệ thống tự gửi PDF và hỏi Zalo
-3. KHÔNG hỏi màu sắc hay bất cứ thứ gì khác sau khi khách chọn size
+2. Khi khách chọn size 1m6x2m3 → chỉ reply đúng 1 câu "Dạ size 1m6x2m3 bên em có ạ." rồi thêm [CATALOGUE_1M6] — không nói thêm gì nữa, hệ thống tự xử lý
+3. Khi khách chọn size 2mx2m9 → chỉ reply đúng 1 câu "Dạ size 2mx2m9 bên em có ạ." rồi thêm [CATALOGUE_2MX] — không nói thêm gì nữa, hệ thống tự xử lý
+4. KHÔNG hỏi màu sắc, không hỏi Zalo, không nói gì thêm sau khi chọn size — hệ thống tự gửi PDF và hỏi Zalo
 
 KHI GỬI CATALOGUE:
 - Khách hỏi size 1m6x2m3 hoặc chọn size đó → thêm [CATALOGUE_1M6] vào cuối reply
@@ -239,7 +240,8 @@ FEMALE_FIRST  = {"hoa", "lan", "linh", "hương", "trang", "thảo", "ngân", "v
 MALE_MIDDLE   = {"văn", "hữu", "đức", "công", "quốc", "minh", "trung", "anh", "bá", "gia"}
 MALE_FIRST    = {"hùng", "dũng", "tuấn", "nam", "long", "đức", "thành", "hải", "sơn", "bình",
                  "trung", "khoa", "lâm", "phong", "quân", "khải", "tùng", "cường", "kiên", "đạt",
-                 "nghĩa", "nhân", "phát", "thắng", "vinh", "khánh", "huy", "minh", "khoa", "hoàng"}
+                 "nghĩa", "nhân", "phát", "thắng", "vinh", "khánh", "huy", "minh", "hoàng", "tâm",
+                 "toàn", "thiện", "phúc", "bảo", "khang", "duy", "quang", "tú", "lộc", "tài"}
 
 def detect_gender(full_name: str) -> str:
     """Trả về 'anh', 'chị', hoặc 'anh chị' nếu không xác định được."""
@@ -345,14 +347,18 @@ def process_message(sender_id, text):
         # Gửi catalogue PDF nếu có
         if send_cat_1m6:
             time.sleep(1)
+            send_text(sender_id, "Dạ em gửi catalog thảm ạ.")
+            time.sleep(1)
             send_file(sender_id, CATALOGUES["1m6x2m3"])
             time.sleep(1)
-            send_text(sender_id, f"Dạ {pronoun} cho em xin số Zalo để em gửi ảnh thực tế nha.")
+            send_text(sender_id, f"Dạ {pronoun} cho em Zalo để em gửi mẫu ạ.")
         if send_cat_2mx:
+            time.sleep(1)
+            send_text(sender_id, "Dạ em gửi catalog thảm ạ.")
             time.sleep(1)
             send_file(sender_id, CATALOGUES["2mx2m9"])
             time.sleep(1)
-            send_text(sender_id, f"Dạ {pronoun} cho em xin số Zalo để em gửi ảnh thực tế nha.")
+            send_text(sender_id, f"Dạ {pronoun} cho em Zalo để em gửi mẫu ạ.")
 
         time.sleep(10)
         bot_sending.discard(sender_id)
