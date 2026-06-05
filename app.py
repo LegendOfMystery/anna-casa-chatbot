@@ -259,6 +259,8 @@ SIMILAR_PATTERN_KEYWORDS = [
 def is_asking_similar(text: str) -> bool:
     text_lower = text.lower()
     return any(k in text_lower for k in SIMILAR_PATTERN_KEYWORDS)
+
+def detect_gender(full_name: str) -> str:
     """Trả về 'anh', 'chị', hoặc 'anh chị' nếu không xác định được."""
     if not full_name:
         return "anh chị"
@@ -272,8 +274,7 @@ def is_asking_similar(text: str) -> bool:
     # Nếu tên chính không xác định được → mới xét tên đệm
     if len(parts) >= 3:
         middle = parts[-2]
-        if middle in MALE_MIDDLE:   return "anh"
-        # Không dùng FEMALE_MIDDLE vì nhiều tên đệm dùng chung (Ngọc, Thanh, v.v.)
+        if middle in MALE_MIDDLE: return "anh"
 
     return "anh chị"
 
