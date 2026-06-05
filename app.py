@@ -141,7 +141,10 @@ THỨ TỰ HỎI KHI TƯ VẤN — hỏi từng câu một theo thứ tự:
 3. Gợi ý sản phẩm phù hợp kèm link
 KHÔNG hỏi về style, phong cách, không gian hay bất cứ thứ gì khác
 
-KHI KHÁCH GỬI HÌNH:
+KHI GỬI CATALOGUE:
+- Khách hỏi size 1m6x2m3 hoặc chọn size đó → thêm [CATALOGUE_1M6] vào cuối reply
+- Khách hỏi size 2mx2m9 hoặc chọn size đó → thêm [CATALOGUE_2MX] vào cuối reply
+- Chỉ gửi 1 lần per size, không gửi lại nếu đã gửi rồi
 - Phân tích màu sắc và họa tiết trong ảnh
 - Tìm trong dữ liệu sản phẩm những mẫu thảm có màu và họa tiết tương tự
 - Gợi ý 1-2 sản phẩm gần nhất kèm link
@@ -208,7 +211,27 @@ def notify_escalate(sender_id, sender_name, message):
         print(f"Escalate failed: {e}")
 
 
-# ── GENDER DETECTION ─────────────────────────────────────────────────────────
+# ── CATALOGUES ───────────────────────────────────────────────────────────────
+CATALOGUES = {
+    "1m6x2m3": "https://drive.google.com/uc?export=download&id=1kQsv0RnLnxFZjhtgKiZAfNcalfuZhw-x",
+    "2mx2m9":  "https://drive.google.com/uc?export=download&id=1ImiR5HnFiojZYoEZJkipxaKUC4OKX7Xv",
+}
+
+def send_file(recipient_id, file_url):
+    url = f"https://graph.facebook.com/v18.0/me/messages?access_token={META_PAGE_TOKEN}"
+    payload = {
+        "recipient": {"id": recipient_id},
+        "message": {
+            "attachment": {
+                "type": "file",
+                "payload": {"url": file_url, "is_reusable": True}
+            }
+        }
+    }
+    try:
+        requests.post(url, json=payload, timeout=15).raise_for_status()
+    except Exception as e:
+        print(f"send_file failed: {e}")
 FEMALE_MIDDLE = {"thị", "ngọc", "thùy", "thanh", "thu", "mai", "lan", "hương", "linh", "thi"}
 FEMALE_FIRST  = {"hoa", "lan", "linh", "hương", "trang", "thảo", "ngân", "vy", "ly", "my",
                  "mai", "yến", "vân", "nhung", "loan", "hằng", "nga", "phương", "hiền", "dung",
@@ -295,7 +318,9 @@ def process_message(sender_id, text):
             greeted_users.add(sender_id)
 
         needs_esc = "[ESCALATE]" in reply
-        clean_reply = reply.replace("[ESCALATE]", "").replace("[SKIP]", "").strip()
+        send_cat_1m6 = "[CATALOGUE_1M6]" in reply
+        send_cat_2mx = "[CATALOGUE_2MX]" in reply
+        clean_reply = reply.replace("[ESCALATE]", "").replace("[SKIP]", "").replace("[CATALOGUE_1M6]", "").replace("[CATALOGUE_2MX]", "").strip()
         save_message(sender_id, "assistant", clean_reply)
 
         if needs_esc:
@@ -317,6 +342,14 @@ def process_message(sender_id, text):
                 send_text(sender_id, clean_reply)
         else:
             send_text(sender_id, clean_reply)
+
+        # Gửi catalogue PDF nếu có
+        if send_cat_1m6:
+            time.sleep(1)
+            send_file(sender_id, CATALOGUES["1m6x2m3"])
+        if send_cat_2mx:
+            time.sleep(1)
+            send_file(sender_id, CATALOGUES["2mx2m9"])
 
         time.sleep(10)
         bot_sending.discard(sender_id)
