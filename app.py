@@ -208,12 +208,39 @@ def notify_escalate(sender_id, sender_name, message):
         print(f"Escalate failed: {e}")
 
 
+# ── GENDER DETECTION ─────────────────────────────────────────────────────────
+FEMALE_MIDDLE = {"thị", "ngọc", "thùy", "thanh", "thu", "mai", "lan", "hương", "linh", "thi"}
+FEMALE_FIRST  = {"hoa", "lan", "linh", "hương", "trang", "thảo", "ngân", "vy", "ly", "my",
+                 "mai", "yến", "vân", "nhung", "loan", "hằng", "nga", "phương", "hiền", "dung",
+                 "trinh", "châu", "nhi", "khánh", "trâm", "tuyền", "quỳnh", "diệu", "thúy",
+                 "hạnh", "lý", "tiên", "xuân", "diễm", "giang", "thư", "bích", "kim", "cúc"}
+MALE_MIDDLE   = {"văn", "hữu", "đức", "công", "quốc", "minh", "trung", "anh", "bá", "gia"}
+MALE_FIRST    = {"hùng", "dũng", "tuấn", "nam", "long", "đức", "thành", "hải", "sơn", "bình",
+                 "trung", "khoa", "lâm", "phong", "quân", "khải", "tùng", "cường", "kiên", "đạt",
+                 "nghĩa", "nhân", "phát", "thắng", "vinh", "khánh", "huy", "minh", "khoa", "hoàng"}
+
+def detect_gender(full_name: str) -> str:
+    """Trả về 'anh', 'chị', hoặc 'anh chị' nếu không xác định được."""
+    if not full_name:
+        return "anh chị"
+    parts = [p.lower() for p in full_name.strip().split()]
+    if len(parts) >= 3:
+        middle = parts[-2]
+        if middle in FEMALE_MIDDLE: return "chị"
+        if middle in MALE_MIDDLE:   return "anh"
+    first = parts[-1]
+    if first in FEMALE_FIRST: return "chị"
+    if first in MALE_FIRST:   return "anh"
+    return "anh chị"
+
+
 # ── PROCESS TEXT MESSAGE ──────────────────────────────────────────────────────
 def process_message(sender_id, text):
     try:
         sender_name = get_sender_name(sender_id)
         human_names[sender_id] = sender_name
         first_name = sender_name.split()[-1] if sender_name else ""
+        pronoun = detect_gender(sender_name)
 
         notification_feed.appendleft({
             "name": sender_name or "Khách",
@@ -227,7 +254,7 @@ def process_message(sender_id, text):
             time.sleep(5)
             if is_human_handling(sender_id): return
             bot_sending.add(sender_id)
-            send_text(sender_id, "Dạ để em chuyển cho bộ phận phụ trách hỗ trợ anh chị ngay ạ.")
+            send_text(sender_id, f"Dạ để em chuyển cho bộ phận phụ trách hỗ trợ {pronoun} ngay ạ.")
             notify_escalate(sender_id, sender_name, text)
             time.sleep(10)
             bot_sending.discard(sender_id)
@@ -235,33 +262,22 @@ def process_message(sender_id, text):
 
         is_first = sender_id not in greeted_users
 
-        # Nếu là tin đầu tiên — chào + câu hỏi cố định, không cần gọi Claude
-        if is_first:
-            greeted_users.add(sender_id)
-            save_message(sender_id, "user", text)
-            greeting = GREETING_TEMPLATE.format(name=first_name)
-            save_message(sender_id, "assistant", f"{greeting} {GREETING_FIRST_Q}")
-            time.sleep(5)
-            if is_human_handling(sender_id): return
-            bot_sending.add(sender_id)
-            send_text(sender_id, greeting)
-            time.sleep(1)
-            send_text(sender_id, GREETING_FIRST_Q)
-            time.sleep(10)
-            bot_sending.discard(sender_id)
-            return
-
-        # Các tin tiếp theo — Claude xử lý
+        # Claude xử lý tất cả — kể cả tin đầu tiên
         products = fetch_rug_products()
         product_data = format_products_for_claude(products)
         system = SYSTEM_BASE.format(product_data=product_data)
+        system += f"\n\nGọi khách là '{pronoun}' (không dùng 'anh chị' nếu đã biết giới tính)."
+
+        if is_first:
+            greeting = f"Anna Casa xin chào {pronoun} {first_name}, em là Trâm sẽ hỗ trợ mình nha."
+            system += f"\n\nĐây là tin nhắn ĐẦU TIÊN. Nếu khách hỏi về thảm: bắt đầu bằng '{greeting}' rồi xuống dòng hỏi '{GREETING_FIRST_Q}'. Nếu không liên quan đến thảm: trả về [SKIP]."
 
         save_message(sender_id, "user", text)
         history = get_history(sender_id)
 
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=100,
+            max_tokens=200,
             system=system,
             messages=history
         )
@@ -274,6 +290,10 @@ def process_message(sender_id, text):
                 conversations[sender_id].pop()
             return
 
+        # Đánh dấu đã chào sau khi biết Claude sẽ reply
+        if is_first:
+            greeted_users.add(sender_id)
+
         needs_esc = "[ESCALATE]" in reply
         clean_reply = reply.replace("[ESCALATE]", "").replace("[SKIP]", "").strip()
         save_message(sender_id, "assistant", clean_reply)
@@ -285,7 +305,19 @@ def process_message(sender_id, text):
         if is_human_handling(sender_id): return
 
         bot_sending.add(sender_id)
-        send_text(sender_id, clean_reply)
+
+        # Tin đầu tiên → tách câu chào thành tin riêng
+        if is_first:
+            parts = re.split(r'(?<=nha\.)\s+|(?<=nha,)\s+', clean_reply, maxsplit=1)
+            if len(parts) == 2:
+                send_text(sender_id, parts[0].strip())
+                time.sleep(1)
+                send_text(sender_id, parts[1].strip())
+            else:
+                send_text(sender_id, clean_reply)
+        else:
+            send_text(sender_id, clean_reply)
+
         time.sleep(10)
         bot_sending.discard(sender_id)
 
