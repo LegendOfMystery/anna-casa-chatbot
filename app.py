@@ -248,13 +248,18 @@ def detect_gender(full_name: str) -> str:
     if not full_name:
         return "anh chị"
     parts = [p.lower() for p in full_name.strip().split()]
-    if len(parts) >= 3:
-        middle = parts[-2]
-        if middle in FEMALE_MIDDLE: return "chị"
-        if middle in MALE_MIDDLE:   return "anh"
+
+    # Ưu tiên tên chính (cuối) trước
     first = parts[-1]
     if first in FEMALE_FIRST: return "chị"
     if first in MALE_FIRST:   return "anh"
+
+    # Nếu tên chính không xác định được → mới xét tên đệm
+    if len(parts) >= 3:
+        middle = parts[-2]
+        if middle in MALE_MIDDLE:   return "anh"
+        # Không dùng FEMALE_MIDDLE vì nhiều tên đệm dùng chung (Ngọc, Thanh, v.v.)
+
     return "anh chị"
 
 
