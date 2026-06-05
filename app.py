@@ -306,6 +306,26 @@ def process_message(sender_id, text):
             bot_sending.discard(sender_id)
             return
 
+        # Wallpaper catalogue trigger — rule cứng, không cần Claude
+        WP_TRIGGERS = ["catalogue giấy dán tường", "catalog giấy dán tường",
+                       "catalogue giay dan tuong", "catalog giay dan tuong",
+                       "nhận catalogue", "nhận catalog"]
+        if any(t in text.lower() for t in WP_TRIGGERS):
+            time.sleep(5)
+            if is_human_handling(sender_id): return
+            bot_sending.add(sender_id)
+            send_text(sender_id, "Dạ em gửi catalog giấy dán tường đang sale ạ.")
+            time.sleep(1)
+            send_file(sender_id, CATALOGUES["wallpaper_1"])
+            time.sleep(1)
+            send_file(sender_id, CATALOGUES["wallpaper_2"])
+            time.sleep(1)
+            send_text(sender_id, f"Dạ {pronoun} cho em Zalo để em tư vấn thêm ạ.")
+            asked_zalo.add(sender_id)
+            time.sleep(10)
+            bot_sending.discard(sender_id)
+            return
+
         is_first = sender_id not in greeted_users
 
         # Claude xử lý tất cả — kể cả tin đầu tiên
