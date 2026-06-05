@@ -145,7 +145,12 @@ THỨ TỰ HỎI KHI TƯ VẤN — hỏi từng câu một theo thứ tự:
 KHI GỬI CATALOGUE:
 - Khách hỏi size 1m6x2m3 hoặc chọn size đó → thêm [CATALOGUE_1M6] vào cuối reply
 - Khách hỏi size 2mx2m9 hoặc chọn size đó → thêm [CATALOGUE_2MX] vào cuối reply
-- Chỉ gửi 1 lần per size, không gửi lại nếu đã gửi rồi
+- Khách nhắn "nhận catalogue giấy dán tường" hoặc tương tự → thêm [CATALOGUE_WP] vào cuối reply
+- Chỉ gửi 1 lần per loại, không gửi lại nếu đã gửi rồi
+
+KHI KHÁCH GỬI HÌNH VÀ HỎI CÓ MẪU TƯƠNG TỰ KHÔNG:
+- Nếu khách hỏi "có mẫu giống này không", "mẫu tương tự", "mẫu như này" → trả về [SKIP]
+- Không phân tích ảnh, không gợi ý sản phẩm tương tự trong trường hợp này
 - Phân tích màu sắc và họa tiết trong ảnh
 - Tìm trong dữ liệu sản phẩm những mẫu thảm có màu và họa tiết tương tự
 - Gợi ý 1-2 sản phẩm gần nhất kèm link
@@ -216,6 +221,8 @@ def notify_escalate(sender_id, sender_name, message):
 CATALOGUES = {
     "1m6x2m3": "https://drive.google.com/uc?export=download&id=1kQsv0RnLnxFZjhtgKiZAfNcalfuZhw-x&confirm=t",
     "2mx2m9":  "https://drive.google.com/uc?export=download&id=1ImiR5HnFiojZYoEZJkipxaKUC4OKX7Xv&confirm=t",
+    "wallpaper_1": "https://drive.google.com/uc?export=download&id=1lcuuGuGpWh7lclBW-Kpxc3VV39cldQes&confirm=t",
+    "wallpaper_2": "https://drive.google.com/uc?export=download&id=1TdGLS_6u2FVCNJMEhL2FhQ5T1_cQ7Xn9&confirm=t",
 }
 
 def send_file(recipient_id, file_url):
@@ -244,7 +251,14 @@ MALE_FIRST    = {"hùng", "dũng", "tuấn", "nam", "long", "đức", "thành", 
                  "nghĩa", "nhân", "phát", "thắng", "vinh", "khánh", "huy", "minh", "hoàng", "tâm",
                  "toàn", "thiện", "phúc", "bảo", "khang", "duy", "quang", "tú", "lộc", "tài"}
 
-def detect_gender(full_name: str) -> str:
+SIMILAR_PATTERN_KEYWORDS = [
+    "mẫu giống", "mẫu tương tự", "mẫu như này", "mẫu như vậy",
+    "có giống không", "có không em", "giống cái này", "tương tự không"
+]
+
+def is_asking_similar(text: str) -> bool:
+    text_lower = text.lower()
+    return any(k in text_lower for k in SIMILAR_PATTERN_KEYWORDS)
     """Trả về 'anh', 'chị', hoặc 'anh chị' nếu không xác định được."""
     if not full_name:
         return "anh chị"
@@ -328,7 +342,8 @@ def process_message(sender_id, text):
         needs_esc = "[ESCALATE]" in reply
         send_cat_1m6 = "[CATALOGUE_1M6]" in reply
         send_cat_2mx = "[CATALOGUE_2MX]" in reply
-        clean_reply = reply.replace("[ESCALATE]", "").replace("[SKIP]", "").replace("[CATALOGUE_1M6]", "").replace("[CATALOGUE_2MX]", "").strip()
+        send_cat_wp  = "[CATALOGUE_WP]" in reply
+        clean_reply = reply.replace("[ESCALATE]", "").replace("[SKIP]", "").replace("[CATALOGUE_1M6]", "").replace("[CATALOGUE_2MX]", "").replace("[CATALOGUE_WP]", "").strip()
         save_message(sender_id, "assistant", clean_reply)
 
         if needs_esc:
@@ -367,6 +382,16 @@ def process_message(sender_id, text):
             send_file(sender_id, CATALOGUES["2mx2m9"])
             time.sleep(1)
             send_text(sender_id, f"Dạ {pronoun} cho em Zalo để em gửi mẫu ạ.")
+            asked_zalo.add(sender_id)
+        if send_cat_wp:
+            time.sleep(1)
+            send_text(sender_id, "Dạ em gửi catalog giấy dán tường đang sale ạ.")
+            time.sleep(1)
+            send_file(sender_id, CATALOGUES["wallpaper_1"])
+            time.sleep(1)
+            send_file(sender_id, CATALOGUES["wallpaper_2"])
+            time.sleep(1)
+            send_text(sender_id, f"Dạ {pronoun} cho em Zalo để em tư vấn thêm ạ.")
             asked_zalo.add(sender_id)
 
         time.sleep(10)
@@ -519,7 +544,7 @@ def receive_webhook():
                 for att in attachments:
                     if att.get("type") == "image":
                         image_url = att.get("payload", {}).get("url", "")
-                        if image_url:
+                        if image_url and not is_asking_similar(text):
                             threading.Thread(
                                 target=process_image,
                                 args=(sender_id, image_url),
