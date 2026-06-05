@@ -265,6 +265,7 @@ def process_message(sender_id, text):
         human_names[sender_id] = sender_name
         first_name = sender_name.split()[-1] if sender_name else ""
         pronoun = detect_gender(sender_name)
+        print(f"[DEBUG] name='{sender_name}' first='{first_name}' pronoun='{pronoun}'")
 
         notification_feed.appendleft({
             "name": sender_name or "Khách",
