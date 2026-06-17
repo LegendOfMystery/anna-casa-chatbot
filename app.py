@@ -37,6 +37,84 @@ notification_feed = deque(maxlen=100)
 bot_enabled = True
 asked_zalo: set = set()  # Đã hỏi Zalo → dừng reply
 
+# ── LEAD TRACKING & APPOINTMENT ───────────────────────────────────────────────
+ref_store:        dict[str, str] = {}   # psid -> ref code từ ad
+invite_sent:      set = set()           # psid đã được mời ghé showroom
+appointment_done: set = set()           # psid đã confirm ghé showroom
+
+SHOWROOM_ADDRESS = "12 Nguyễn Ư Dĩ, phường An Khánh, TP.HCM"
+SHOWROOM_HOURS   = "10:00 sáng đến 7:00 tối, tất cả các ngày trong tuần"
+SHOWROOM_HOTLINE = "+84 909 072 820"
+LEAD_SHEET_NAME  = "Lead Register"
+
+APPOINTMENT_CONFIRM = [
+    "Dạ bên em rất vui được đón {pronoun} ạ 🙏",
+    "📍 Showroom Anna Casa: {address}\n🕙 {hours}\n📞 Hotline: {hotline}",
+    "{pronoun_cap} cứ ghé bất cứ lúc nào thuận tiện nhé, bên em luôn có người tư vấn trực tiếp ạ."
+]
+
+APPOINTMENT_POSITIVE = [
+    r"\bcó\b", r"\bokay\b", r"\bok\b", r"\bđược\b", r"\bmuốn\b",
+    r"\bghé\b", r"\bđến\b", r"\bxem\b", r"\bthăm\b", r"\bvô\b",
+    r"\bvào\b", r"\bsẽ ghé\b", r"\bsẽ đến\b", r"\bnhé\b",
+    r"\byes\b", r"\bsure\b", r"\bthích\b",
+]
+APPOINTMENT_NEGATIVE = [
+    r"\bkhông\b", r"\bko\b", r"^\bk\b$", r"\bchưa\b",
+    r"\bthôi\b", r"\bkhỏi\b",
+]
+
+def is_appointment_confirmed(message: str) -> bool:
+    msg = message.lower().strip()
+    for p in APPOINTMENT_NEGATIVE:
+        if re.search(p, msg):
+            return False
+    for p in APPOINTMENT_POSITIVE:
+        if re.search(p, msg):
+            return True
+    return False
+
+def log_lead_to_sheet(psid: str, ref_code: str, phone: str = ""):
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    row = [timestamp, psid, phone, ref_code, "new", "", ""]
+    url = (
+        f"https://sheets.googleapis.com/v4/spreadsheets/{SHEET_ID}"
+        f"/values/{LEAD_SHEET_NAME}!A:G:append"
+        f"?valueInputOption=USER_ENTERED&key={GOOGLE_API_KEY}"
+    )
+    try:
+        requests.post(url, json={"values": [row]}, timeout=5)
+        print(f"[LEAD] {ref_code} | {psid}")
+    except Exception as e:
+        print(f"[LEAD ERROR] {e}")
+
+def log_appointment_to_sheet(psid: str):
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    read_url = (
+        f"https://sheets.googleapis.com/v4/spreadsheets/{SHEET_ID}"
+        f"/values/{LEAD_SHEET_NAME}!A:H?key={GOOGLE_API_KEY}"
+    )
+    try:
+        resp = requests.get(read_url, timeout=5)
+        rows = resp.json().get("values", [])
+        for i, row in enumerate(rows):
+            if len(row) > 1 and row[1] == psid:
+                row_num = i + 1
+                update_url = (
+                    f"https://sheets.googleapis.com/v4/spreadsheets/{SHEET_ID}"
+                    f"/values/{LEAD_SHEET_NAME}!H{row_num}"
+                    f"?valueInputOption=USER_ENTERED&key={GOOGLE_API_KEY}"
+                )
+                requests.put(update_url, json={"values": [[f"booked {timestamp}"]]}, timeout=5)
+                print(f"[APPOINTMENT] Booked for {psid}")
+                return
+        # Không tìm thấy PSID — ghi row mới
+        log_lead_to_sheet(psid=psid, ref_code=ref_store.get(psid, "organic"))
+    except Exception as e:
+        print(f"[APPOINTMENT ERROR] {e}")
+
 
 def is_human_handling(sender_id): return sender_id in human_mode
 def get_history(sender_id): return conversations.get(sender_id, [])
@@ -160,6 +238,13 @@ KHI NÀO ESCALATE:
 Nếu khách để lại số điện thoại, yêu cầu hoàn tiền, hủy đơn, hoặc giảm giá:
 - Reply: "Dạ để em chuyển cho bộ phận phụ trách hỗ trợ anh chị ngay ạ."
 - Thêm [ESCALATE] vào cuối (không hiện cho khách)
+
+MỜI GHÉ SHOWROOM:
+- Sau khi tư vấn đủ (đã trả lời ít nhất 2-3 câu hỏi về thảm, hoặc khách đã hỏi giá, kích thước, chất liệu), mời khách ghé showroom một lần.
+- Câu mời mẫu: "Anh chị có muốn ghé showroom bên em xem trực tiếp không ạ? Nhìn thảm ngoài đời đẹp hơn ảnh nhiều ạ."
+- Chỉ hỏi MỘT LẦN. Không hỏi lại nếu khách chưa trả lời hoặc đổi chủ đề.
+- Sau khi hỏi, thêm [INVITE_SENT] vào cuối reply (không hiện cho khách).
+- Nếu khách đồng ý ghé: thêm [APPOINTMENT] vào cuối reply, KHÔNG tự viết địa chỉ hay giờ mở cửa.
 
 TUYỆT ĐỐI KHÔNG:
 - Bịa thông tin không có trong dữ liệu sản phẩm
@@ -326,6 +411,33 @@ def process_message(sender_id, text):
             bot_sending.discard(sender_id)
             return
 
+        # ── APPOINTMENT CONFIRMATION CHECK ────────────────────────────────────
+        if sender_id in invite_sent and sender_id not in appointment_done:
+            if is_appointment_confirmed(text):
+                appointment_done.add(sender_id)
+                threading.Thread(
+                    target=log_appointment_to_sheet,
+                    args=(sender_id,),
+                    daemon=True
+                ).start()
+                time.sleep(3)
+                if is_human_handling(sender_id): return
+                bot_sending.add(sender_id)
+                for msg_template in APPOINTMENT_CONFIRM:
+                    msg = msg_template.format(
+                        pronoun=pronoun,
+                        pronoun_cap=pronoun.capitalize(),
+                        address=SHOWROOM_ADDRESS,
+                        hours=SHOWROOM_HOURS,
+                        hotline=SHOWROOM_HOTLINE
+                    )
+                    send_text(sender_id, msg)
+                    time.sleep(1)
+                time.sleep(10)
+                bot_sending.discard(sender_id)
+                return
+        # ─────────────────────────────────────────────────────────────────────
+
         is_first = sender_id not in greeted_users
 
         # Claude xử lý tất cả — kể cả tin đầu tiên
@@ -360,12 +472,35 @@ def process_message(sender_id, text):
         if is_first:
             greeted_users.add(sender_id)
 
-        needs_esc = "[ESCALATE]" in reply
-        send_cat_1m6 = "[CATALOGUE_1M6]" in reply
-        send_cat_2mx = "[CATALOGUE_2MX]" in reply
-        send_cat_wp  = "[CATALOGUE_WP]" in reply
-        clean_reply = reply.replace("[ESCALATE]", "").replace("[SKIP]", "").replace("[CATALOGUE_1M6]", "").replace("[CATALOGUE_2MX]", "").replace("[CATALOGUE_WP]", "").strip()
+        needs_esc       = "[ESCALATE]" in reply
+        send_cat_1m6    = "[CATALOGUE_1M6]" in reply
+        send_cat_2mx    = "[CATALOGUE_2MX]" in reply
+        send_cat_wp     = "[CATALOGUE_WP]" in reply
+        invite_flag     = "[INVITE_SENT]" in reply
+        appointment_flag = "[APPOINTMENT]" in reply
+        clean_reply = (reply
+            .replace("[ESCALATE]", "")
+            .replace("[SKIP]", "")
+            .replace("[CATALOGUE_1M6]", "")
+            .replace("[CATALOGUE_2MX]", "")
+            .replace("[CATALOGUE_WP]", "")
+            .replace("[INVITE_SENT]", "")
+            .replace("[APPOINTMENT]", "")
+            .strip())
         save_message(sender_id, "assistant", clean_reply)
+
+        if invite_flag:
+            invite_sent.add(sender_id)
+            print(f"[INVITE] Showroom invite sent to {sender_id}")
+
+        if appointment_flag and sender_id not in appointment_done:
+            appointment_done.add(sender_id)
+            invite_sent.add(sender_id)
+            threading.Thread(
+                target=log_appointment_to_sheet,
+                args=(sender_id,),
+                daemon=True
+            ).start()
 
         if needs_esc:
             notify_escalate(sender_id, sender_name, text)
@@ -404,6 +539,20 @@ def process_message(sender_id, text):
             time.sleep(1)
             send_text(sender_id, f"Dạ {pronoun} cho em Zalo để em gửi mẫu ạ.")
             asked_zalo.add(sender_id)
+
+        # Gửi confirm appointment nếu Claude detect khách đồng ý ngay trong reply
+        if appointment_flag:
+            time.sleep(1)
+            for msg_template in APPOINTMENT_CONFIRM:
+                msg = msg_template.format(
+                    pronoun=pronoun,
+                    pronoun_cap=pronoun.capitalize(),
+                    address=SHOWROOM_ADDRESS,
+                    hours=SHOWROOM_HOURS,
+                    hotline=SHOWROOM_HOTLINE
+                )
+                send_text(sender_id, msg)
+                time.sleep(1)
         if send_cat_wp:
             time.sleep(1)
             send_text(sender_id, "Dạ em gửi catalog giấy dán tường đang sale ạ.")
@@ -537,6 +686,18 @@ def receive_webhook():
             if not sender_id:
                 continue
 
+            # ── REF TRACKING (Click-to-Messenger ad) ─────────────────────────
+            referral = event.get("referral", {})
+            ref = referral.get("ref", "").strip()
+            if ref and sender_id not in ref_store:
+                ref_store[sender_id] = ref
+                threading.Thread(
+                    target=log_lead_to_sheet,
+                    args=(sender_id, ref),
+                    daemon=True
+                ).start()
+            # ─────────────────────────────────────────────────────────────────
+
             if is_echo:
                 customer_id = event.get("recipient", {}).get("id")
                 if not customer_id: continue
@@ -609,6 +770,8 @@ def api_reactivate():
         human_mode.discard(cid)
         greeted_users.discard(cid)
         asked_zalo.discard(cid)
+        invite_sent.discard(cid)
+        appointment_done.discard(cid)
     return jsonify({"ok": True})
 
 
