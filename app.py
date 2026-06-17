@@ -79,7 +79,7 @@ def log_lead_to_sheet(psid: str, ref_code: str, phone: str = ""):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     row = [timestamp, psid, phone, ref_code, "new", "", ""]
     ok = sheets_post(
-        f"/values/{LEAD_SHEET_NAME}!A:G/append?valueInputOption=USER_ENTERED",
+        f"/values/{LEAD_SHEET_NAME}!A:G:append?valueInputOption=USER_ENTERED",
         {"values": [row]}
     )
     if ok:
