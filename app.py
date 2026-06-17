@@ -687,9 +687,13 @@ def receive_webhook():
                 continue
 
             # ── REF TRACKING (Click-to-Messenger ad) ─────────────────────────
-            referral = event.get("referral", {})
+            referral = (
+                event.get("referral") or
+                event.get("postback", {}).get("referral") or
+                {}
+            )
             ref = referral.get("ref", "").strip()
-            print(f"[REF DEBUG] event keys: {list(event.keys())} | referral: {referral} | ref: '{ref}'")
+            print(f"[REF DEBUG] ref='{ref}' | referral={referral}")
             if ref and sender_id not in ref_store:
                 ref_store[sender_id] = ref
                 threading.Thread(
@@ -697,6 +701,7 @@ def receive_webhook():
                     args=(sender_id, ref),
                     daemon=True
                 ).start()
+                print(f"[LEAD] Logged ref={ref} for {sender_id}")
             # ─────────────────────────────────────────────────────────────────
 
             if is_echo:
