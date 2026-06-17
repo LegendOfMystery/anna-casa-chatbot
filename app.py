@@ -45,7 +45,7 @@ appointment_done: set = set()           # psid đã confirm ghé showroom
 SHOWROOM_ADDRESS = "12 Nguyễn Ư Dĩ, phường An Khánh, TP.HCM"
 SHOWROOM_HOURS   = "10:00 sáng đến 7:00 tối, tất cả các ngày trong tuần"
 SHOWROOM_HOTLINE = "+84 909 072 820"
-LEAD_SHEET_NAME  = "Lead Register"
+LEAD_SHEET_NAME  = "Lead%20Register"
 
 APPOINTMENT_CONFIRM = [
     "Dạ bên em rất vui được đón {pronoun} ạ 🙏",
