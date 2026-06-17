@@ -165,10 +165,12 @@ def sheets_post(url_path: str, payload: dict) -> bool:
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     try:
         resp = requests.post(url, json=payload, headers=headers, timeout=10)
-        resp.raise_for_status()
-        return True
+        print(f"[SHEETS POST] status={resp.status_code} | body={resp.text[:500]}")
+        if resp.status_code in (200, 201):
+            return True
+        return False
     except Exception as e:
-        print(f"[SHEETS POST ERROR] {e} | resp={resp.text[:300] if resp else 'no resp'}")
+        print(f"[SHEETS POST ERROR] {e}")
         return False
 
 def sheets_put(url_path: str, payload: dict) -> bool:
