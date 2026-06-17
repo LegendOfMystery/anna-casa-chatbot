@@ -77,7 +77,7 @@ def is_appointment_confirmed(message: str) -> bool:
 def log_lead_to_sheet(psid: str, ref_code: str, phone: str = "", name: str = ""):
     from datetime import datetime
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    chat_link = f"https://www.facebook.com/messages/t/{psid}"
+    chat_link = f"https://business.facebook.com/latest/inbox/messenger?selected_thread_id={psid}"
     row = [timestamp, psid, name, phone, ref_code, "new", "", "", chat_link]
     ok = sheets_post(
         f"/values/{LEAD_SHEET_NAME}!A:I:append?valueInputOption=USER_ENTERED",
