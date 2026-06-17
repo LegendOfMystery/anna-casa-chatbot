@@ -74,23 +74,24 @@ def is_appointment_confirmed(message: str) -> bool:
             return True
     return False
 
-def log_lead_to_sheet(psid: str, ref_code: str, phone: str = ""):
+def log_lead_to_sheet(psid: str, ref_code: str, phone: str = "", name: str = ""):
     from datetime import datetime
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    row = [timestamp, psid, phone, ref_code, "new", "", ""]
+    chat_link = f"https://www.facebook.com/messages/t/{psid}"
+    row = [timestamp, psid, name, phone, ref_code, "new", "", "", chat_link]
     ok = sheets_post(
-        f"/values/{LEAD_SHEET_NAME}!A:G:append?valueInputOption=USER_ENTERED",
+        f"/values/{LEAD_SHEET_NAME}!A:I:append?valueInputOption=USER_ENTERED",
         {"values": [row]}
     )
     if ok:
-        print(f"[LEAD] {ref_code} | {psid}")
+        print(f"[LEAD] {ref_code} | {psid} | {name}")
     else:
         print(f"[LEAD ERROR] Failed to write to sheet")
 
 def log_appointment_to_sheet(psid: str):
     from datetime import datetime
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    data = sheets_get(f"/values/{LEAD_SHEET_NAME}!A:H")
+    data = sheets_get(f"/values/{LEAD_SHEET_NAME}!A:I")
     rows = data.get("values", [])
     try:
         for i, row in enumerate(rows):
@@ -757,12 +758,14 @@ def receive_webhook():
 
             if ref and sender_id not in ref_store:
                 ref_store[sender_id] = ref
+                sender_name = get_sender_name(sender_id)
                 threading.Thread(
                     target=log_lead_to_sheet,
                     args=(sender_id, ref),
+                    kwargs={"name": sender_name},
                     daemon=True
                 ).start()
-                print(f"[LEAD] Logged ref={ref} for {sender_id}")
+                print(f"[LEAD] Logged ref={ref} | {sender_id} | {sender_name}")
             # ─────────────────────────────────────────────────────────────────
 
             if is_echo:
