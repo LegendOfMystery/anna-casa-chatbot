@@ -687,14 +687,13 @@ def receive_webhook():
                 continue
 
             # ── REF TRACKING (Click-to-Messenger ad) ─────────────────────────
-            referral = (
-                event.get("referral") or
-                event.get("postback", {}).get("referral") or
-                {}
-            )
-            ref = referral.get("ref", "").strip()
-            print(f"[REF DEBUG] ref='{ref}' | referral={referral}")
-            print(f"[EVENT DUMP] {event}")
+            # Lấy ref từ postback.payload (mỗi ad set payload khác nhau)
+            postback = event.get("postback", {})
+            postback_payload = postback.get("payload", "").strip()
+            # Fallback: thử referral object nếu có
+            referral = event.get("referral") or postback.get("referral") or {}
+            ref = referral.get("ref", "").strip() or postback_payload
+
             if ref and sender_id not in ref_store:
                 ref_store[sender_id] = ref
                 threading.Thread(
