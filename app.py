@@ -694,6 +694,7 @@ def receive_webhook():
             )
             ref = referral.get("ref", "").strip()
             print(f"[REF DEBUG] ref='{ref}' | referral={referral}")
+            print(f"[EVENT DUMP] {event}")
             if ref and sender_id not in ref_store:
                 ref_store[sender_id] = ref
                 threading.Thread(
