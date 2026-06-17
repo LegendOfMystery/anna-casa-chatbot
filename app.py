@@ -80,7 +80,7 @@ def log_lead_to_sheet(psid: str, ref_code: str, phone: str = ""):
     row = [timestamp, psid, phone, ref_code, "new", "", ""]
     url = (
         f"https://sheets.googleapis.com/v4/spreadsheets/{SHEET_ID}"
-        f"/values/{LEAD_SHEET_NAME}!A:G:append"
+        f"/values/{LEAD_SHEET_NAME}!A:G/append"
         f"?valueInputOption=USER_ENTERED&key={GOOGLE_API_KEY}"
     )
     try:
