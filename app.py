@@ -78,39 +78,30 @@ def log_lead_to_sheet(psid: str, ref_code: str, phone: str = ""):
     from datetime import datetime
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     row = [timestamp, psid, phone, ref_code, "new", "", ""]
-    url = (
-        f"https://sheets.googleapis.com/v4/spreadsheets/{SHEET_ID}"
-        f"/values/{LEAD_SHEET_NAME}!A:G/append"
-        f"?valueInputOption=USER_ENTERED&key={GOOGLE_API_KEY}"
+    ok = sheets_post(
+        f"/values/{LEAD_SHEET_NAME}!A:G/append?valueInputOption=USER_ENTERED",
+        {"values": [row]}
     )
-    try:
-        requests.post(url, json={"values": [row]}, timeout=5)
+    if ok:
         print(f"[LEAD] {ref_code} | {psid}")
-    except Exception as e:
-        print(f"[LEAD ERROR] {e}")
+    else:
+        print(f"[LEAD ERROR] Failed to write to sheet")
 
 def log_appointment_to_sheet(psid: str):
     from datetime import datetime
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    read_url = (
-        f"https://sheets.googleapis.com/v4/spreadsheets/{SHEET_ID}"
-        f"/values/{LEAD_SHEET_NAME}!A:H?key={GOOGLE_API_KEY}"
-    )
+    data = sheets_get(f"/values/{LEAD_SHEET_NAME}!A:H")
+    rows = data.get("values", [])
     try:
-        resp = requests.get(read_url, timeout=5)
-        rows = resp.json().get("values", [])
         for i, row in enumerate(rows):
             if len(row) > 1 and row[1] == psid:
                 row_num = i + 1
-                update_url = (
-                    f"https://sheets.googleapis.com/v4/spreadsheets/{SHEET_ID}"
-                    f"/values/{LEAD_SHEET_NAME}!H{row_num}"
-                    f"?valueInputOption=USER_ENTERED&key={GOOGLE_API_KEY}"
+                sheets_put(
+                    f"/values/{LEAD_SHEET_NAME}!H{row_num}?valueInputOption=USER_ENTERED",
+                    {"values": [[f"booked {timestamp}"]]}
                 )
-                requests.put(update_url, json={"values": [[f"booked {timestamp}"]]}, timeout=5)
                 print(f"[APPOINTMENT] Booked for {psid}")
                 return
-        # Không tìm thấy PSID — ghi row mới
         log_lead_to_sheet(psid=psid, ref_code=ref_store.get(psid, "organic"))
     except Exception as e:
         print(f"[APPOINTMENT ERROR] {e}")
@@ -141,6 +132,74 @@ def needs_escalate(text: str) -> bool:
     text_lower = text.lower()
     return any(re.search(p, text_lower) for p in ESCALATE_TRIGGERS)
 
+
+# ── GOOGLE SHEETS AUTH ────────────────────────────────────────────────────────
+import json
+import google.auth.transport.requests
+from google.oauth2 import service_account
+
+def get_sheets_token() -> str:
+    """Lấy access token từ service account JSON trong env var."""
+    sa_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+    if not sa_json:
+        return ""
+    try:
+        sa_info = json.loads(sa_json)
+        creds = service_account.Credentials.from_service_account_info(
+            sa_info,
+            scopes=["https://www.googleapis.com/auth/spreadsheets"]
+        )
+        creds.refresh(google.auth.transport.requests.Request())
+        return creds.token
+    except Exception as e:
+        print(f"[AUTH ERROR] {e}")
+        return ""
+
+def sheets_post(url_path: str, payload: dict) -> bool:
+    """POST tới Sheets API dùng service account token."""
+    token = get_sheets_token()
+    if not token:
+        print("[SHEETS] No service account token")
+        return False
+    url = f"https://sheets.googleapis.com/v4/spreadsheets/{SHEET_ID}{url_path}"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    try:
+        resp = requests.post(url, json=payload, headers=headers, timeout=10)
+        resp.raise_for_status()
+        return True
+    except Exception as e:
+        print(f"[SHEETS POST ERROR] {e} | {resp.text if resp else ''}")
+        return False
+
+def sheets_put(url_path: str, payload: dict) -> bool:
+    """PUT tới Sheets API dùng service account token."""
+    token = get_sheets_token()
+    if not token:
+        return False
+    url = f"https://sheets.googleapis.com/v4/spreadsheets/{SHEET_ID}{url_path}"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    try:
+        resp = requests.put(url, json=payload, headers=headers, timeout=10)
+        resp.raise_for_status()
+        return True
+    except Exception as e:
+        print(f"[SHEETS PUT ERROR] {e}")
+        return False
+
+def sheets_get(url_path: str) -> dict:
+    """GET tới Sheets API dùng service account token."""
+    token = get_sheets_token()
+    if not token:
+        return {}
+    url = f"https://sheets.googleapis.com/v4/spreadsheets/{SHEET_ID}{url_path}"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        print(f"[SHEETS GET ERROR] {e}")
+        return {}
 
 # ── GOOGLE SHEETS ─────────────────────────────────────────────────────────────
 sheet_cache = {"data": [], "last_updated": 0}
