@@ -168,7 +168,7 @@ def sheets_post(url_path: str, payload: dict) -> bool:
         resp.raise_for_status()
         return True
     except Exception as e:
-        print(f"[SHEETS POST ERROR] {e} | {resp.text if resp else ''}")
+        print(f"[SHEETS POST ERROR] {e} | resp={resp.text[:300] if resp else 'no resp'}")
         return False
 
 def sheets_put(url_path: str, payload: dict) -> bool:
