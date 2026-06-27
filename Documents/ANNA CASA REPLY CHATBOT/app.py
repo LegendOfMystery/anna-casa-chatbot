@@ -549,8 +549,9 @@ def process_message(sender_id, text):
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=600,
-            system=system,
-            messages=history
+            system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+            messages=history,
+            extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"}
         )
 
         reply = response.content[0].text
@@ -704,10 +705,11 @@ def process_image(sender_id, image_url):
         history = get_history(sender_id) + [vision_message]
 
         response = client.messages.create(
-            model="claude-sonnet-4-20250514",  # Dùng Sonnet cho vision
+            model="claude-haiku-4-5-20251001",
             max_tokens=150,
-            system=system,
-            messages=history
+            system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+            messages=history,
+            extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"}
         )
 
         reply = response.content[0].text
