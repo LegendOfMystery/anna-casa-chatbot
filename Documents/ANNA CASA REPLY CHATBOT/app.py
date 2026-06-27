@@ -117,8 +117,8 @@ def save_message(sender_id, role, content):
     if sender_id not in conversations:
         conversations[sender_id] = []
     conversations[sender_id].append({"role": role, "content": content})
-    if len(conversations[sender_id]) > 20:
-        conversations[sender_id] = conversations[sender_id][-20:]
+    if len(conversations[sender_id]) > 8:
+        conversations[sender_id] = conversations[sender_id][-8:]
 
 
 # ── ESCALATE TRIGGERS ─────────────────────────────────────────────────────────
@@ -247,12 +247,12 @@ def format_products_for_claude(products: list[dict], category: str = None) -> st
         for p in products:
             colors = ", ".join(p.get("colors", [])) or "đa dạng"
             lines.append(f"- {p.get('name','')} | Kích thước: {p.get('size','')} | "
-                         f"Màu: {colors} | Visual: {p.get('visual_description','')} | Link: {p.get('url','')}")
+                         f"Màu: {colors} | Visual: {p.get('visual_description','')[:60]} | Link: {p.get('url','')}")
     elif category == "giay_dan_tuong":
         lines = ["=== GIẤY DÁN TƯỜNG ==="]
         for p in products:
             visual = p.get('visual_description', '')
-            lines.append(f"- {p.get('name','')} | Màu/Họa tiết: {visual} | Link: {p.get('url','')}")
+            lines.append(f"- {p.get('name','')} | Màu/Họa tiết: {visual[:60]} | Link: {p.get('url','')}")
     else:
         # fallback: cả 2
         rugs = [p for p in products if p.get("category") == "tham"]
@@ -261,11 +261,11 @@ def format_products_for_claude(products: list[dict], category: str = None) -> st
         for p in rugs:
             colors = ", ".join(p.get("colors", [])) or "đa dạng"
             lines.append(f"- {p.get('name','')} | Kích thước: {p.get('size','')} | "
-                         f"Màu: {colors} | Visual: {p.get('visual_description','')} | Link: {p.get('url','')}")
+                         f"Màu: {colors} | Visual: {p.get('visual_description','')[:60]} | Link: {p.get('url','')}")
         lines.append("\n=== GIẤY DÁN TƯỜNG ===")
         for p in wps:
             visual = p.get('visual_description', '')
-            lines.append(f"- {p.get('name','')} | Màu/Họa tiết: {visual} | Link: {p.get('url','')}")
+            lines.append(f"- {p.get('name','')} | Màu/Họa tiết: {visual[:60]} | Link: {p.get('url','')}")
     return "\n".join(lines)
 
 
