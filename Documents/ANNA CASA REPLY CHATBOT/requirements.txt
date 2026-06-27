@@ -3,3 +3,4 @@ anthropic
 requests
 google-auth
 beautifulsoup4
+gunicorn
