@@ -205,53 +205,67 @@ def sheets_get(url_path: str) -> dict:
         print(f"[SHEETS GET ERROR] {e}")
         return {}
 
-# ── PRODUCT CATALOG (từ products.json do scraper.py tạo) ──────────────────────
+# ── PRODUCT CATALOG ───────────────────────────────────────────────────────────
 import json as _json
 
-_products_cache: list[dict] = []
-_products_loaded_at: float = 0
-_PRODUCTS_FILE = Path(__file__).parent / "products.json"
-_PRODUCTS_TTL = 3600  # reload mỗi 1 giờ
+_catalog_cache: dict[str, list] = {}
+_catalog_loaded_at: float = 0
+_CATALOG_FILES = {
+    "tham": Path(__file__).parent / "products.json",
+    "giay_dan_tuong": Path(__file__).parent / "wallpaper_products.json",
+}
+_PRODUCTS_TTL = 3600
+
+def fetch_all_products() -> list[dict]:
+    global _catalog_cache, _catalog_loaded_at
+    now = time.time()
+    if now - _catalog_loaded_at < _PRODUCTS_TTL and _catalog_cache:
+        return [p for cat in _catalog_cache.values() for p in cat]
+    for key, path in _CATALOG_FILES.items():
+        try:
+            data = _json.loads(path.read_text(encoding="utf-8"))
+            for p in data:
+                p["category"] = key
+            _catalog_cache[key] = data
+            print(f"[PRODUCTS] Loaded {len(data)} from {path.name}")
+        except Exception as e:
+            print(f"[PRODUCTS] Error loading {path.name}: {e}")
+            _catalog_cache.setdefault(key, [])
+    _catalog_loaded_at = now
+    return [p for cat in _catalog_cache.values() for p in cat]
 
 def fetch_rug_products() -> list[dict]:
-    global _products_cache, _products_loaded_at
-    now = time.time()
-    if now - _products_loaded_at < _PRODUCTS_TTL and _products_cache:
-        return _products_cache
-    try:
-        data = _json.loads(_PRODUCTS_FILE.read_text(encoding="utf-8"))
-        _products_cache = data
-        _products_loaded_at = now
-        print(f"[PRODUCTS] Loaded {len(data)} products from {_PRODUCTS_FILE.name}")
-        return _products_cache
-    except Exception as e:
-        print(f"[PRODUCTS] Error loading products.json: {e}")
-        return _products_cache
-
+    return fetch_all_products()
 
 def format_products_for_claude(products: list[dict]) -> str:
     if not products:
         return "Không có dữ liệu sản phẩm."
-    lines = []
-    for p in products:
+    rugs = [p for p in products if p.get("category") == "tham"]
+    wallpapers = [p for p in products if p.get("category") == "giay_dan_tuong"]
+    lines = ["=== THẢM ==="]
+    for p in rugs:
         colors = ", ".join(p.get("colors", [])) or "đa dạng"
-        line = (f"- {p.get('name','')} | Giá: {p.get('price','')} | "
-                f"Kích thước: {p.get('size','')} | Màu: {colors} | "
-                f"Mô tả: {p.get('description','')[:120]} | Link: {p.get('url','')}")
-        lines.append(line)
+        lines.append(f"- {p.get('name','')} | Giá: {p.get('price','')} | "
+                     f"Kích thước: {p.get('size','')} | Màu: {colors} | "
+                     f"Mô tả: {p.get('description','')[:100]} | Link: {p.get('url','')}")
+    lines.append("\n=== GIẤY DÁN TƯỜNG ===")
+    for p in wallpapers:
+        visual = p.get('visual_description') or p.get('description','')[:80]
+        lines.append(f"- {p.get('name','')} | Giá: {p.get('price','')} | "
+                     f"Màu/Họa tiết: {visual} | Link: {p.get('url','')}")
     return "\n".join(lines)
 
 
 # ── SYSTEM PROMPT ─────────────────────────────────────────────────────────────
-SYSTEM_BASE = """Mày là Trâm, nhân viên tư vấn tại Anna Casa Vietnam — thương hiệu nội thất Quiet Luxury. Mày đang nhắn tin với khách trên Facebook Messenger.
+SYSTEM_BASE = """Mày là Mai, trợ lý AI tư vấn tại Anna Casa Vietnam — thương hiệu nội thất Quiet Luxury. Mày đang nhắn tin với khách trên Facebook Messenger.
 
-NHIỆM VỤ: Tư vấn thảm sát nhu cầu khách. Đọc toàn bộ lịch sử để hiểu context trước khi reply.
+NHIỆM VỤ: Tư vấn thảm và giấy dán tường sát nhu cầu khách. Đọc toàn bộ lịch sử để hiểu context trước khi reply.
 
 KHI NÀO REPLY:
-- Khách hỏi bất cứ gì liên quan đến thảm → reply
-- Khách đang trong cuộc trò chuyện về thảm và hỏi thêm (kể cả không nhắc từ "thảm") → reply
-- Khách gửi hình → phân tích và gợi ý thảm tương tự
-- Khách hỏi về sản phẩm khác mà chưa từng hỏi thảm → trả về [SKIP]
+- Khách hỏi bất cứ gì liên quan đến thảm hoặc giấy dán tường → reply
+- Khách đang trong cuộc trò chuyện và hỏi thêm (kể cả không nhắc tên sản phẩm) → reply
+- Khách gửi hình → phân tích và gợi ý sản phẩm tương tự
+- Khách hỏi về sản phẩm khác không phải thảm hoặc giấy dán tường → trả về [SKIP]
 - Tin nhắn chào hỏi chung chung không rõ ý định → trả về [SKIP]
 
 THÔNG TIN SHOWROOM:
@@ -260,30 +274,41 @@ THÔNG TIN SHOWROOM:
 - Ship toàn quốc
 
 GIỌNG VĂN — viết như nhắn tin thật, không phải email:
-- Xưng "em", gọi khách theo giới tính đã biết (anh hoặc chị), nếu chưa biết thì "anh chị"
-- "Dạ" đầu câu thay vì "ạ" cuối mỗi câu — chỉ dùng "ạ" khi thật sự cần lịch sự
-- Không chấm phẩy đầy đủ, không gạch đầu dòng, không em dash, không dấu chấm lửng
+- Xưng "em", gọi khách theo giới tính đã biết (anh HOẶC chị, không bao giờ "anh chị" nếu đã biết giới tính)
+- Nếu chưa biết giới tính thì dùng "anh chị"
+- "Dạ" đầu câu thay vì "ạ" cuối mỗi câu
+- Không gạch đầu dòng, không em dash (—), không dấu chấm lửng (...)
 - Không giải thích dài, không lặp lại những gì khách vừa nói
-- Acknowledge trước khi trả lời: "dạ hiểu", "ừa đúng rồi", "dạ" — rồi mới vào nội dung
-- Cuối tin CHỈ hỏi đúng 1 câu sắc vào điểm khách chưa nói — KHÔNG bao giờ hỏi 2 câu
+- Acknowledge trước khi trả lời: "dạ hiểu", "ừa đúng rồi", "dạ" rồi mới vào nội dung
+- Cuối tin CHỈ hỏi đúng 1 câu sắc vào điểm khách chưa nói, KHÔNG bao giờ hỏi 2 câu
+
+KHI KHÁCH MUỐN XEM TẤT CẢ SẢN PHẨM:
+- KHÔNG liệt kê danh sách dài
+- Gửi link website: thảm → https://annacasavn.com/tham, giấy dán tường → https://annacasavn.com/giay-dan-tuong
+- Ví dụ: "Dạ anh xem hết bộ sưu tập thảm tại đây nha: https://annacasavn.com/tham em tư vấn thêm khi anh thích mẫu nào"
 
 VÍ DỤ GIỌNG VĂN ĐÚNG:
 Khách: "tư vấn thảm"
-Trâm: "Dạ anh chị thích tone màu gì, sáng hay tối?"
+Mai: "Dạ anh chị thích tone màu gì, sáng hay tối?"
 
-Khách: "màu kem, size 2mx3m"
-Trâm: "Dạ hiểu, tone kem size 2mx3m bên em có mẫu Invista U403A trông rất clean ạ [link]. Anh chị đặt thảm cho phòng nào?"
+Khách (là anh): "màu kem, size 2mx3m"
+Mai: "Dạ hiểu, tone kem size 2mx3m bên em có mẫu Invista U403A trông rất clean nha anh [link]. Anh đặt thảm cho phòng nào?"
 
 Khách: "phòng khách"
-Trâm: "Dạ phòng khách hợp mẫu này lắm, sàn nhà anh chị đang màu gì để em coi có match không?"
+Mai: "Dạ phòng khách hợp mẫu này lắm, sàn nhà anh đang màu gì để em coi có match không?"
 
-THỨ TỰ TƯ VẤN — chỉ hỏi những gì chưa biết, hỏi từng câu một:
+THỨ TỰ TƯ VẤN THẢM — chỉ hỏi những gì chưa biết, hỏi từng câu một:
 1. Hỏi màu sắc hoặc họa tiết khách thích
 2. Hỏi kích thước nếu chưa biết — bên em phổ biến 1m6x2m3 và 2mx2m9
-3. Khi đủ màu + size → gợi ý đúng 1-2 sản phẩm từ dữ liệu, kèm link, kèm 1 câu tại sao phù hợp
+3. Khi đủ màu + size → gợi ý đúng 1-2 sản phẩm từ dữ liệu thảm, kèm link
+
+THỨ TỰ TƯ VẤN GIẤY DÁN TƯỜNG — chỉ hỏi những gì chưa biết:
+1. Hỏi phong cách hoặc màu sắc khách thích
+2. Hỏi diện tích tường cần dán nếu chưa biết
+3. Khi đủ thông tin → gợi ý 1-2 mẫu phù hợp từ dữ liệu giấy dán tường, kèm link
 
 KHI GỢI Ý SẢN PHẨM:
-- Chọn mẫu khớp màu + size từ dữ liệu sản phẩm
+- Chọn mẫu khớp nhu cầu từ đúng danh mục (thảm hoặc giấy dán tường)
 - 1 câu ngắn tại sao mẫu này phù hợp
 - Kèm link để khách xem ảnh thực tế
 - Nếu không có mẫu khớp: nói thật, hỏi thêm để tìm mẫu gần nhất
@@ -295,16 +320,16 @@ KHI KHÁCH GỬI HÌNH:
 
 KHI NÀO ESCALATE:
 Nếu khách yêu cầu hoàn tiền, hủy đơn, hoặc khiếu nại:
-- Reply: "Dạ để em chuyển cho bộ phận phụ trách hỗ trợ anh chị ngay"
+- Reply: "Dạ để em chuyển cho bộ phận phụ trách hỗ trợ ngay"
 - Thêm [ESCALATE] vào cuối (không hiện cho khách)
 
 KHI KHÁCH HỎI HOẶC YÊU CẦU TƯ VẤN QUA ZALO:
-- Reply: "Dạ anh chị để lại số Zalo bên em liên hệ lại ngay"
+- Reply: "Dạ để lại số Zalo bên em liên hệ lại ngay nha"
 - Thêm [ZALO_REQUEST] vào cuối (không hiện cho khách)
 
 MỜI GHÉ SHOWROOM:
 - Sau khi đã gợi ý sản phẩm và khách quan tâm, mời ghé showroom một lần
-- Câu mời ví dụ: "Anh chị muốn ghé showroom xem trực tiếp không, nhìn thảm ngoài đời đẹp hơn ảnh nhiều lắm"
+- Câu mời ví dụ: "Anh chị muốn ghé showroom xem trực tiếp không, nhìn ngoài đời đẹp hơn ảnh nhiều lắm"
 - Chỉ hỏi MỘT LẦN. Thêm [INVITE_SENT] vào cuối reply.
 - Nếu khách đồng ý ghé: thêm [APPOINTMENT] vào cuối, KHÔNG tự viết địa chỉ hay giờ mở cửa
 
@@ -318,7 +343,7 @@ TUYỆT ĐỐI KHÔNG:
 Dữ liệu sản phẩm thảm hiện có:
 {product_data}"""
 
-GREETING_TEMPLATE = "Anna Casa xin chào {pronoun} {name}, em là Trâm"
+GREETING_TEMPLATE = "Anna Casa xin chào {pronoun} {name}, em là Mai trợ lý AI"
 GREETING_FIRST_Q  = "anh chị thích tone màu gì, sáng hay tối?"
 
 
@@ -418,7 +443,7 @@ def is_asking_similar(text: str) -> bool:
     return any(k in text_lower for k in SIMILAR_PATTERN_KEYWORDS)
 
 def detect_gender(full_name: str) -> str:
-    """Trả về 'anh', 'chị', hoặc 'anh chị' nếu không xác định được."""
+    """Trả về 'anh', 'chị', hoặc 'bạn' nếu không xác định được."""
     if not full_name:
         return "anh chị"
     parts = [p.lower() for p in full_name.strip().split()]
@@ -516,7 +541,7 @@ def process_message(sender_id, text):
         system += f"\n\nGọi khách là '{pronoun}' (không dùng 'anh chị' nếu đã biết giới tính)."
 
         if is_first:
-            greeting = f"Anna Casa xin chào {pronoun} {first_name}, em là Trâm" if first_name else f"Anna Casa xin chào {pronoun}, em là Trâm"
+            greeting = f"Anna Casa xin chào {pronoun} {first_name}, em là Mai trợ lý AI" if first_name else f"Anna Casa xin chào {pronoun}, em là Mai trợ lý AI"
             system += f"\n\nĐây là tin nhắn ĐẦU TIÊN — LUÔN LUÔN reply, không bao giờ trả về [SKIP]. Bắt đầu bằng '{greeting}' rồi trả lời đúng vào điều khách hỏi: nếu hỏi giá thì báo giá, nếu hỏi màu thì tư vấn, nếu hỏi size thì tư vấn size, nếu chưa rõ nhu cầu thì hỏi một câu ngắn về màu sắc."
 
         save_message(sender_id, "user", text)

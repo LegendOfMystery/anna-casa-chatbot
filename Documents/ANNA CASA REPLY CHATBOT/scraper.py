@@ -12,7 +12,9 @@ from bs4 import BeautifulSoup
 
 BASE_URL = "https://annacasavn.com"
 LISTING_URL = f"{BASE_URL}/tham"
+WP_LISTING_URL = f"{BASE_URL}/giay-dan-tuong?q=collections:4004284&page=1&view=grid"
 OUTPUT_FILE = Path(__file__).parent / "products.json"
+WP_OUTPUT_FILE = Path(__file__).parent / "wallpaper_products.json"
 
 HEADERS = {
     "User-Agent": (
@@ -33,18 +35,18 @@ COLOR_KEYWORDS = [
     "ivory", "sand", "taupe", "charcoal", "navy", "terracotta",
 ]
 
-def get_product_links() -> list[str]:
+def get_product_links(listing_url: str, path_prefix: str) -> list[str]:
     links = set()
     page = 1
     while True:
-        url = LISTING_URL if page == 1 else f"{LISTING_URL}?page={page}"
+        url = listing_url if page == 1 else f"{listing_url.split('?')[0]}?page={page}"
         try:
             res = requests.get(url, headers=HEADERS, timeout=15)
             soup = BeautifulSoup(res.text, "html.parser")
             found = 0
             for a in soup.find_all("a", href=True):
                 href = a["href"]
-                if "/tham-" in href and "?" not in href:
+                if path_prefix in href and "?" not in href:
                     full = href if href.startswith("http") else BASE_URL + href
                     if full not in links:
                         links.add(full)
@@ -137,21 +139,34 @@ def scrape_product(url: str) -> dict | None:
 
 
 def run():
-    print("[SCRAPER] Fetching product links...")
-    links = get_product_links()
-    print(f"[SCRAPER] Found {len(links)} products")
-
-    products = []
-    for i, url in enumerate(links, 1):
-        print(f"[{i}/{len(links)}] {url.split('/')[-1]}")
+    # Scrape thảm
+    print("[SCRAPER] Fetching rug links...")
+    rug_links = get_product_links(LISTING_URL, "/tham-")
+    print(f"[SCRAPER] Found {len(rug_links)} rugs")
+    rugs = []
+    for i, url in enumerate(rug_links, 1):
+        print(f"[RUG {i}/{len(rug_links)}] {url.split('/')[-1]}")
         p = scrape_product(url)
         if p:
-            products.append(p)
+            rugs.append(p)
         time.sleep(0.3)
+    OUTPUT_FILE.write_text(json.dumps(rugs, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"[SCRAPER] Rugs done — {len(rugs)} saved")
 
-    OUTPUT_FILE.write_text(json.dumps(products, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"[SCRAPER] Done — {len(products)} products saved to {OUTPUT_FILE}")
-    return products
+    # Scrape giấy dán tường
+    print("[SCRAPER] Fetching wallpaper links...")
+    wp_links = get_product_links(WP_LISTING_URL, "/giay-dan-tuong-")
+    print(f"[SCRAPER] Found {len(wp_links)} wallpapers")
+    wallpapers = []
+    for i, url in enumerate(wp_links, 1):
+        print(f"[WP {i}/{len(wp_links)}] {url.split('/')[-1]}")
+        p = scrape_product(url)
+        if p:
+            p["category"] = "giay_dan_tuong"
+            wallpapers.append(p)
+        time.sleep(0.3)
+    WP_OUTPUT_FILE.write_text(json.dumps(wallpapers, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"[SCRAPER] Wallpapers done — {len(wallpapers)} saved")
 
 
 if __name__ == "__main__":
