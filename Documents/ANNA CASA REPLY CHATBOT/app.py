@@ -245,14 +245,12 @@ def format_products_for_claude(products: list[dict]) -> str:
     lines = ["=== THẢM ==="]
     for p in rugs:
         colors = ", ".join(p.get("colors", [])) or "đa dạng"
-        lines.append(f"- {p.get('name','')} | Giá: {p.get('price','')} | "
-                     f"Kích thước: {p.get('size','')} | Màu: {colors} | "
-                     f"Mô tả: {p.get('description','')[:100]} | Link: {p.get('url','')}")
+        lines.append(f"- {p.get('name','')} | Kích thước: {p.get('size','')} | "
+                     f"Màu: {colors} | Visual: {p.get('visual_description','')} | Link: {p.get('url','')}")
     lines.append("\n=== GIẤY DÁN TƯỜNG ===")
     for p in wallpapers:
-        visual = p.get('visual_description') or p.get('description','')[:80]
-        lines.append(f"- {p.get('name','')} | Giá: {p.get('price','')} | "
-                     f"Màu/Họa tiết: {visual} | Link: {p.get('url','')}")
+        visual = p.get('visual_description', '')
+        lines.append(f"- {p.get('name','')} | Màu/Họa tiết: {visual} | Link: {p.get('url','')}")
     return "\n".join(lines)
 
 
