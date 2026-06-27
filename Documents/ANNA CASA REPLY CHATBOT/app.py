@@ -558,6 +558,21 @@ def process_message(sender_id, text):
                 cat = "giay_dan_tuong"
                 user_category[sender_id] = cat
 
+        # Tin đầu tiên + chưa rõ category → hardcode greeting, không gọi Claude
+        if is_first and not cat:
+            greeted_users.add(sender_id)
+            name_part = f" {first_name}" if first_name else ""
+            line1 = f"Anna Casa xin chào {pronoun}{name_part}, em là Mai trợ lý AI tư vấn tại Anna Casa Vietnam."
+            line2 = f"Dạ {pronoun} cần tư vấn sản phẩm gì ạ, bên em có thảm, giấy dán tường, sofa, bàn cà phê, đèn trang trí, bàn ghế ăn, gói nội thất ạ"
+            time.sleep(5)
+            bot_sending.add(sender_id)
+            send_text(sender_id, line1)
+            time.sleep(1)
+            send_text(sender_id, line2)
+            time.sleep(10)
+            bot_sending.discard(sender_id)
+            return
+
         if cat:
             products = fetch_products_by_category(cat)
             product_data = format_products_for_claude(products, cat)
