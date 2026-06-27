@@ -567,8 +567,9 @@ def process_message(sender_id, text):
         system += f"\n\nGọi khách là '{pronoun}' (không dùng 'anh chị' nếu đã biết giới tính)."
 
         if is_first:
-            greeting = f"Anna Casa xin chào {pronoun} {first_name}, em là Mai trợ lý AI" if first_name else f"Anna Casa xin chào {pronoun}, em là Mai trợ lý AI"
-            system += f"\n\nĐây là tin nhắn ĐẦU TIÊN — LUÔN LUÔN reply, không bao giờ trả về [SKIP]. Bắt đầu bằng '{greeting}' rồi trả lời đúng vào điều khách hỏi: nếu hỏi giá thì báo giá, nếu hỏi màu thì tư vấn, nếu hỏi size thì tư vấn size, nếu chưa rõ nhu cầu thì hỏi một câu ngắn về màu sắc."
+            greeting = f"Anna Casa xin chào {pronoun} {first_name}, em là Mai trợ lý AI tư vấn tại Anna Casa Vietnam." if first_name else f"Anna Casa xin chào {pronoun}, em là Mai trợ lý AI tư vấn tại Anna Casa Vietnam."
+            product_list = "thảm, giấy dán tường, sofa, bàn cà phê, đèn trang trí, bàn ghế ăn, gói nội thất"
+            system += f"\n\nĐây là tin nhắn ĐẦU TIÊN — LUÔN LUÔN reply, không bao giờ trả về [SKIP]. Bắt đầu bằng '{greeting}' rồi:\n- Nếu khách hỏi rõ về thảm hoặc giấy dán tường → tư vấn luôn\n- Nếu khách hỏi sản phẩm khác (sofa, đèn...) → reply escalate\n- Nếu chưa rõ nhu cầu → hỏi: 'Dạ {pronoun} cần tư vấn sản phẩm gì ạ, bên em có {product_list}'"
 
         save_message(sender_id, "user", text)
         history = get_history(sender_id)
