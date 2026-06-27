@@ -570,12 +570,14 @@ def process_message(sender_id, text):
         zalo_request     = "[ZALO_REQUEST]" in reply
         invite_flag      = "[INVITE_SENT]" in reply
         appointment_flag = "[APPOINTMENT]" in reply
+        send_cat_wp      = "[CAT_WP]" in reply
         clean_reply = (reply
             .replace("[ESCALATE]", "")
             .replace("[SKIP]", "")
             .replace("[ZALO_REQUEST]", "")
             .replace("[INVITE_SENT]", "")
             .replace("[APPOINTMENT]", "")
+            .replace("[CAT_WP]", "")
             .strip())
         save_message(sender_id, "assistant", clean_reply)
 
