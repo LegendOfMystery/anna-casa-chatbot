@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Anna Casa — Điều khiển Bot</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f4f0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 2rem 1rem; }
+
+  .logo { font-size: 13px; font-weight: 600; letter-spacing: 0.12em; color: #888; text-transform: uppercase; margin-bottom: 2.5rem; }
+
+  .card { background: #fff; border-radius: 16px; border: 1px solid #e8e6e0; padding: 2rem; width: 100%; max-width: 400px; text-align: center; }
+
+  .status-label { font-size: 12px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: #aaa; margin-bottom: 0.75rem; }
+
+  .status-indicator { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 2rem; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; background: #ccc; transition: background 0.3s; }
+  .dot.on { background: #1D9E75; animation: pulse 2s infinite; }
+  .dot.off { background: #D85A30; animation: none; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+  .status-text { font-size: 22px; font-weight: 600; color: #1a1a1a; }
+
+  .toggle-btn { width: 100%; padding: 1rem; border: none; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.2s; margin-bottom: 1rem; }
+  .toggle-btn.turn-off { background: #1a1a1a; color: #fff; }
+  .toggle-btn.turn-off:hover { background: #333; }
+  .toggle-btn.turn-on { background: #1D9E75; color: #fff; }
+  .toggle-btn.turn-on:hover { background: #188f68; }
+  .toggle-btn:disabled { opacity: 0.5; cursor: default; }
+
+  .note { font-size: 12px; color: #aaa; line-height: 1.6; margin-top: 0.5rem; }
+
+  .divider { border: none; border-top: 1px solid #f0ede8; margin: 1.5rem 0; }
+
+  .section-title { font-size: 12px; font-weight: 600; color: #aaa; text-transform: uppercase; letter-spacing: 0.08em; text-align: left; margin-bottom: 0.75rem; }
+
+  .customer-list { text-align: left; }
+  .customer-item { display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 0; border-bottom: 1px solid #f5f4f0; }
+  .customer-item:last-child { border-bottom: none; }
+  .customer-name { font-size: 13px; color: #333; }
+  .customer-status { font-size: 11px; color: #D85A30; font-weight: 500; }
+  .reactivate-btn { font-size: 11px; color: #1D9E75; background: none; border: 1px solid #1D9E75; border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+  .reactivate-btn:hover { background: #1D9E75; color: #fff; }
+
+  .empty-customers { font-size: 13px; color: #aaa; text-align: center; padding: 1rem 0; }
+
+  .last-updated { font-size: 11px; color: #ccc; margin-top: 1.5rem; }
+</style>
+</head>
+<body>
+
+<div class="logo">Anna Casa</div>
+
+<div class="card">
+  <div class="status-label">Trạng thái bot</div>
+  <div class="status-indicator">
+    <div class="dot" id="dot"></div>
+    <div class="status-text" id="status-text">Đang tải...</div>
+  </div>
+
+  <button class="toggle-btn" id="toggle-btn" onclick="toggleBot()" disabled>...</button>
+  <p class="note" id="note"></p>
+
+  <hr class="divider">
+
+  <div class="section-title">Khách đang do sales phụ trách</div>
+  <div class="customer-list" id="customer-list">
+    <p class="empty-customers">Không có</p>
+  </div>
+
+  <div class="last-updated" id="last-updated"></div>
+</div>
+
+<script>
+let botOn = null;
+let humanList = [];
+
+async function fetchStatus() {
+  try {
+    const res = await fetch('/api/status');
+    const data = await res.json();
+    botOn = data.bot_enabled;
+    humanList = data.human_mode || [];
+    render();
+    document.getElementById('last-updated').textContent = 'Cập nhật lúc ' + new Date().toLocaleTimeString('vi-VN');
+  } catch(e) {
+    document.getElementById('status-text').textContent = 'Lỗi kết nối';
+  }
+}
+
+function render() {
+  const dot = document.getElementById('dot');
+  const statusText = document.getElementById('status-text');
+  const btn = document.getElementById('toggle-btn');
+  const note = document.getElementById('note');
+
+  dot.className = 'dot ' + (botOn ? 'on' : 'off');
+  statusText.textContent = botOn ? 'Bot đang bật' : 'Bot đang tắt';
+  btn.disabled = false;
+
+  if (botOn) {
+    btn.className = 'toggle-btn turn-off';
+    btn.textContent = 'Tắt bot — Sales trực tiếp';
+    note.textContent = 'Bot đang tự động reply khách hỏi về thảm. Nhấn để tắt và tự tư vấn.';
+  } else {
+    btn.className = 'toggle-btn turn-on';
+    btn.textContent = 'Bật bot — Tự động reply';
+    note.textContent = 'Bot đang tắt. Nhấn để bật lại khi không có người trực.';
+  }
+
+  // Render human list
+  const list = document.getElementById('customer-list');
+  if (humanList.length === 0) {
+    list.innerHTML = '<p class="empty-customers">Không có</p>';
+  } else {
+    list.innerHTML = humanList.map(c => `
+      <div class="customer-item">
+        <div>
+          <div class="customer-name">${c.name || c.id}</div>
+          <div class="customer-status">Sales đang phụ trách</div>
+        </div>
+        <button class="reactivate-btn" onclick="reactivateBot('${c.id}')">Bật bot lại</button>
+      </div>
+    `).join('');
+  }
+}
+
+async function toggleBot() {
+  const btn = document.getElementById('toggle-btn');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/toggle', { method: 'POST' });
+    const data = await res.json();
+    botOn = data.bot_enabled;
+    render();
+  } catch(e) {
+    alert('Lỗi kết nối');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function reactivateBot(customerId) {
+  try {
+    await fetch('/api/reactivate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({customer_id: customerId})
+    });
+    await fetchStatus();
+  } catch(e) {
+    alert('Lỗi');
+  }
+}
+
+// Auto refresh mỗi 10s
+fetchStatus();
+setInterval(fetchStatus, 10000);
+</script>
+</body>
+</html>
