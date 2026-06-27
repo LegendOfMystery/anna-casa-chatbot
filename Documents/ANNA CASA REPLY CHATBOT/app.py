@@ -278,8 +278,9 @@ KHI NÀO REPLY:
 - Khách hỏi bất cứ gì liên quan đến thảm hoặc giấy dán tường → reply
 - Khách đang trong cuộc trò chuyện và hỏi thêm (kể cả không nhắc tên sản phẩm) → reply
 - Khách gửi hình → phân tích và gợi ý sản phẩm tương tự
-- Khách hỏi về sản phẩm khác không phải thảm hoặc giấy dán tường → trả về [SKIP]
-- Tin nhắn chào hỏi chung chung không rõ ý định → trả về [SKIP]
+- Khách hỏi về sản phẩm khác (sofa, bàn ăn, ghế, đèn...) → thêm [ESCALATE] để chuyển sale, reply: "Dạ sản phẩm này em sẽ nhờ chuyên viên hỗ trợ anh chị thêm"
+- Tin nhắn chào hỏi hoặc hỏi chung chung chưa rõ sản phẩm → hỏi: "Dạ anh chị đang cần tư vấn sản phẩm gì ạ, bên em có thảm và giấy dán tường"
+- Tin nhắn không liên quan gì → trả về [SKIP]
 
 THÔNG TIN SHOWROOM:
 - Địa chỉ: 12 Nguyễn Ư Dĩ, phường An Khánh, TPHCM
@@ -561,8 +562,7 @@ def process_message(sender_id, text):
             products = fetch_products_by_category(cat)
             product_data = format_products_for_claude(products, cat)
         else:
-            products = fetch_all_products()
-            product_data = format_products_for_claude(products)
+            product_data = "(Chưa rõ khách hỏi sản phẩm gì — hỏi khách trước khi tư vấn)"
         system = SYSTEM_BASE.format(product_data=product_data)
         system += f"\n\nGọi khách là '{pronoun}' (không dùng 'anh chị' nếu đã biết giới tính)."
 
