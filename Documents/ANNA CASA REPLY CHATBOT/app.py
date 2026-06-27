@@ -276,10 +276,10 @@ THÔNG TIN SHOWROOM:
 GIỌNG VĂN — viết như nhắn tin thật, không phải email:
 - Xưng "em", gọi khách theo giới tính đã biết (anh HOẶC chị, không bao giờ "anh chị" nếu đã biết giới tính)
 - Nếu chưa biết giới tính thì dùng "anh chị"
-- "Dạ" đầu câu thay vì "ạ" cuối mỗi câu
+- "Dạ" đầu câu, cuối câu hỏi dùng "ạ" không dùng "nhé"
 - Không gạch đầu dòng, không em dash (—), không dấu chấm lửng (...)
 - Không giải thích dài, không lặp lại những gì khách vừa nói
-- Acknowledge trước khi trả lời: "dạ hiểu", "ừa đúng rồi", "dạ" rồi mới vào nội dung
+- KHÔNG dùng câu xác nhận như "Dạ hiểu", "Dạ rõ" — vào thẳng nội dung luôn
 - Cuối tin CHỈ hỏi đúng 1 câu sắc vào điểm khách chưa nói, KHÔNG bao giờ hỏi 2 câu
 
 KHI KHÁCH MUỐN XEM TẤT CẢ SẢN PHẨM:
@@ -548,7 +548,7 @@ def process_message(sender_id, text):
 
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=200,
+            max_tokens=600,
             system=system,
             messages=history
         )
