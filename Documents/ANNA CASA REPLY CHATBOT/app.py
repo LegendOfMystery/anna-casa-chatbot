@@ -34,6 +34,7 @@ human_mode: set = set()
 human_names: dict[str, str] = {}
 greeted_users: set = set()
 conversations: dict[str, list] = {}
+user_category: dict[str, str] = {}  # psid -> "tham" | "giay_dan_tuong" | None
 notification_feed = deque(maxlen=100)
 bot_enabled = True
 asked_zalo: set = set()  # Đã hỏi Zalo → dừng reply
@@ -234,23 +235,37 @@ def fetch_all_products() -> list[dict]:
     _catalog_loaded_at = now
     return [p for cat in _catalog_cache.values() for p in cat]
 
-def fetch_rug_products() -> list[dict]:
-    return fetch_all_products()
+def fetch_products_by_category(category: str) -> list[dict]:
+    fetch_all_products()  # ensure cache loaded
+    return _catalog_cache.get(category, [])
 
-def format_products_for_claude(products: list[dict]) -> str:
+def format_products_for_claude(products: list[dict], category: str = None) -> str:
     if not products:
         return "Không có dữ liệu sản phẩm."
-    rugs = [p for p in products if p.get("category") == "tham"]
-    wallpapers = [p for p in products if p.get("category") == "giay_dan_tuong"]
-    lines = ["=== THẢM ==="]
-    for p in rugs:
-        colors = ", ".join(p.get("colors", [])) or "đa dạng"
-        lines.append(f"- {p.get('name','')} | Kích thước: {p.get('size','')} | "
-                     f"Màu: {colors} | Visual: {p.get('visual_description','')} | Link: {p.get('url','')}")
-    lines.append("\n=== GIẤY DÁN TƯỜNG ===")
-    for p in wallpapers:
-        visual = p.get('visual_description', '')
-        lines.append(f"- {p.get('name','')} | Màu/Họa tiết: {visual} | Link: {p.get('url','')}")
+    if category == "tham":
+        lines = ["=== THẢM ==="]
+        for p in products:
+            colors = ", ".join(p.get("colors", [])) or "đa dạng"
+            lines.append(f"- {p.get('name','')} | Kích thước: {p.get('size','')} | "
+                         f"Màu: {colors} | Visual: {p.get('visual_description','')} | Link: {p.get('url','')}")
+    elif category == "giay_dan_tuong":
+        lines = ["=== GIẤY DÁN TƯỜNG ==="]
+        for p in products:
+            visual = p.get('visual_description', '')
+            lines.append(f"- {p.get('name','')} | Màu/Họa tiết: {visual} | Link: {p.get('url','')}")
+    else:
+        # fallback: cả 2
+        rugs = [p for p in products if p.get("category") == "tham"]
+        wps = [p for p in products if p.get("category") == "giay_dan_tuong"]
+        lines = ["=== THẢM ==="]
+        for p in rugs:
+            colors = ", ".join(p.get("colors", [])) or "đa dạng"
+            lines.append(f"- {p.get('name','')} | Kích thước: {p.get('size','')} | "
+                         f"Màu: {colors} | Visual: {p.get('visual_description','')} | Link: {p.get('url','')}")
+        lines.append("\n=== GIẤY DÁN TƯỜNG ===")
+        for p in wps:
+            visual = p.get('visual_description', '')
+            lines.append(f"- {p.get('name','')} | Màu/Họa tiết: {visual} | Link: {p.get('url','')}")
     return "\n".join(lines)
 
 
@@ -531,9 +546,23 @@ def process_message(sender_id, text):
 
         is_first = sender_id not in greeted_users
 
-        # Claude xử lý tất cả — kể cả tin đầu tiên
-        products = fetch_rug_products()
-        product_data = format_products_for_claude(products)
+        # Detect category từ tin nhắn nếu chưa biết
+        cat = user_category.get(sender_id)
+        if not cat:
+            t = text.lower()
+            if any(k in t for k in ["thảm", "tham", "carpet", "rug"]):
+                cat = "tham"
+                user_category[sender_id] = cat
+            elif any(k in t for k in ["giấy", "giay", "tường", "tuong", "wallpaper"]):
+                cat = "giay_dan_tuong"
+                user_category[sender_id] = cat
+
+        if cat:
+            products = fetch_products_by_category(cat)
+            product_data = format_products_for_claude(products, cat)
+        else:
+            products = fetch_all_products()
+            product_data = format_products_for_claude(products)
         system = SYSTEM_BASE.format(product_data=product_data)
         system += f"\n\nGọi khách là '{pronoun}' (không dùng 'anh chị' nếu đã biết giới tính)."
 
