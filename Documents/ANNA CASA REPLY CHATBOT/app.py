@@ -241,24 +241,23 @@ def fetch_products_by_category(category: str) -> list[dict]:
     return _catalog_cache.get(category, [])
 
 _MATERIAL_MAP = [
-    (["lông cừu", "wool", "len cừu"],       "Lông cừu tự nhiên", "ấm áp, mềm mại, thân thiện môi trường"),
-    (["len", "broadway", "mehari", "canyon", "argentum", "high line"], "Len tự nhiên", "bền, ấm, chống bụi bẩn tốt"),
-    (["haima", "jaipur", "hand tufted", "hand knot", "dệt tay"], "Len dệt tay", "thủ công, độc đáo, bền theo thời gian"),
-    (["shaggy", "furry", "fluffy"],          "Sợi dài (Shaggy)", "mềm mại, tạo cảm giác ấm cúng, sang trọng"),
-    (["sisal", "jute", "coir"],              "Sợi tự nhiên (Sisal/Jute)", "thân thiện môi trường, thoáng khí, bền"),
-    (["polypropylene", "pp ", " pp"],        "Polypropylene", "bền bỉ, dễ vệ sinh, chống ẩm mốc"),
-    (["polyester", "pet "],                  "Polyester", "mềm mại, màu sắc tươi, dễ vệ sinh"),
-    (["viscose", "bamboo", "silk"],          "Viscose/Bamboo Silk", "óng ánh, mềm mịn, sang trọng"),
+    (["lông cừu", "wool", "len cừu"],       "Chất liệu lông cừu tự nhiên, ấm áp, mềm mại và thân thiện với môi trường"),
+    (["len", "broadway", "mehari", "canyon", "argentum", "high line"], "Chất liệu len tự nhiên, bền đẹp theo thời gian, chống bụi bẩn tốt"),
+    (["haima", "jaipur", "hand tufted", "hand knot", "dệt tay"], "Dệt tay thủ công từ len tự nhiên, độc đáo và bền chắc"),
+    (["shaggy", "furry", "fluffy"],          "Sợi dài mềm mại, tạo cảm giác ấm cúng và sang trọng cho không gian"),
+    (["sisal", "jute", "coir"],              "Sợi tự nhiên thoáng khí, thân thiện môi trường, bền theo thời gian"),
+    (["polypropylene", "pp ", " pp"],        "Chất liệu polypropylene cao cấp, bền bỉ, dễ vệ sinh và chống ẩm mốc"),
+    (["polyester", "pet "],                  "Chất liệu polyester mềm mại, giữ màu tốt và rất dễ vệ sinh"),
+    (["viscose", "bamboo", "silk"],          "Sợi viscose/bamboo silk óng ánh, mềm mịn và sang trọng"),
 ]
 
 def get_material_info(name: str) -> str:
     name_lower = name.lower()
-    for keywords, material, benefit in _MATERIAL_MAP:
+    for keywords, description in _MATERIAL_MAP:
         if any(k in name_lower for k in keywords):
-            return f"{material} — {benefit}"
-    # UA thảm thường là polypropylene/polyester
+            return description
     if "ua " in name_lower or " ua" in name_lower:
-        return "Polypropylene/Polyester — bền bỉ, dễ vệ sinh, chống ẩm mốc"
+        return "Chất liệu polypropylene/polyester cao cấp, bền bỉ, dễ vệ sinh và chống ẩm mốc"
     return ""
 
 def format_products_for_claude(products: list[dict], category: str = None) -> str:
@@ -727,7 +726,7 @@ def process_message(sender_id, text):
                     material = get_material_info(prod["name"])
                     label = f"Mẫu {i}: {prod['name']}"
                     if material:
-                        label += f"\n{material}"
+                        label += f"\nDạ mẫu này {material} ạ"
                     time.sleep(1)
                     send_text(sender_id, label)
                     time.sleep(1)
