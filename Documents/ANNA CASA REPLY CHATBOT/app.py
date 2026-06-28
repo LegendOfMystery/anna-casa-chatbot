@@ -251,6 +251,30 @@ _MATERIAL_MAP = [
     (["viscose", "bamboo", "silk"],          "Sợi viscose/bamboo silk óng ánh, mềm mịn và sang trọng"),
 ]
 
+_MATERIAL_BENEFIT = {
+    "100% wool":                    "Len tự nhiên 100%, ấm áp, sang trọng và bền theo thời gian",
+    "100% polypropylene heatset":   "Polypropylene Heatset cao cấp, bền bỉ, dễ vệ sinh, chống ẩm mốc",
+    "100% polypropylene (berclon)": "Polypropylene Berclon cao cấp, siêu bền, chống phai màu và dễ vệ sinh",
+    "100% polypropylene":           "Polypropylene cao cấp, bền bỉ, dễ vệ sinh và chống ẩm mốc",
+    "55% polyester + 45% polypropylene heatset": "Pha Polyester và Polypropylene Heatset, mềm mại, bền màu và dễ vệ sinh",
+    "pes + pp heatset":             "Pha Polyester và Polypropylene Heatset, mềm mại, bền màu và dễ vệ sinh",
+    "pp heatset + polyester":       "Pha Polypropylene Heatset và Polyester, bền bỉ, mềm mại và dễ vệ sinh",
+    "pp twisted friezing yarn":     "Sợi PP xoắn cao cấp, có chiều sâu về màu sắc, bền và dễ vệ sinh",
+    "100% polyester":               "Polyester mềm mại, giữ màu tốt và rất dễ vệ sinh",
+    "sợi tổng hợp cao cấp (shaggy)": "Sợi tổng hợp cao cấp lông dài, mềm mại, tạo cảm giác ấm cúng",
+    "sợi tổng hợp":                 "Sợi tổng hợp bền bỉ, dễ vệ sinh",
+    "wool, cotton & bamboo silk (dệt tay thủ công)": "Pha Len, Cotton và Bamboo Silk dệt tay thủ công, độc đáo và sang trọng",
+    "wool dệt tay thủ công":        "Len tự nhiên dệt tay thủ công, độc đáo, bền chắc và có giá trị nghệ thuật cao",
+    "90% viscose - 10% suede leather": "Viscose óng ánh kết hợp Suede Leather, cực kỳ mềm mịn và sang trọng",
+    "70% wool - 30% viscose":       "Pha Len và Viscose, ấm áp, óng ánh và rất sang trọng",
+    "60% wool - 40% viscose":       "Pha Len và Viscose, mềm mại, óng ánh và bền theo thời gian",
+    "sợi sisal tự nhiên":           "Sợi Sisal tự nhiên, thoáng khí, thân thiện môi trường và bền theo thời gian",
+}
+
+def get_material_benefit(material: str) -> str:
+    key = material.strip().lower()
+    return _MATERIAL_BENEFIT.get(key, material)
+
 def get_material_info(name: str) -> str:
     name_lower = name.lower()
     for keywords, description in _MATERIAL_MAP:
@@ -723,11 +747,12 @@ def process_message(sender_id, text):
             if matched:
                 user_pending_products[sender_id] = matched
                 for i, prod in enumerate(matched, 1):
-                    material = prod.get("material", "") or get_material_info(prod["name"])
+                    raw_material = prod.get("material", "")
+                    material_desc = get_material_benefit(raw_material) if raw_material else get_material_info(prod["name"])
                     origin = prod.get("origin", "")
                     label = f"Mẫu {i}: {prod['name']}"
-                    if material:
-                        mat_line = f"Dạ mẫu này {material}"
+                    if material_desc:
+                        mat_line = f"Dạ mẫu này {material_desc}"
                         if origin:
                             mat_line += f", nhập khẩu từ {origin}"
                         label += f"\n{mat_line} ạ"
