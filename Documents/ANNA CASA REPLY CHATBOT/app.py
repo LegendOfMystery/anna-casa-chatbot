@@ -628,18 +628,25 @@ def process_message(sender_id, text):
             if any(k in t_norm for k in p1) or t_norm in ("1", "một", "1ạ", "1 ạ"): idx = 0
             elif any(k in t_norm for k in p2) or t_norm in ("2", "hai", "2ạ", "2 ạ"): idx = 1
             elif any(k in t_norm for k in p3) or t_norm in ("3", "ba", "3ạ", "3 ạ"): idx = 2
-            if idx is not None and idx < len(pending):
-                prod = pending[idx]
-                user_pending_products.pop(sender_id, None)
-                material_desc = get_material_benefit(prod.get("material", "")) if prod.get("material") else ""
-                origin = prod.get("origin", "")
-                time.sleep(2)
-                bot_sending.add(sender_id)
-                msg = f"Dạ đây là link xem chi tiết và đặt hàng mẫu {idx+1} {pronoun} nhé: {prod['url']}"
-                send_text(sender_id, msg)
-                time.sleep(20)
-                bot_sending.discard(sender_id)
-                return
+            if idx is not None:
+                if idx < len(pending):
+                    prod = pending[idx]
+                    user_pending_products.pop(sender_id, None)
+                    time.sleep(2)
+                    bot_sending.add(sender_id)
+                    msg = f"Dạ đây là link xem chi tiết và đặt hàng mẫu {idx+1} {pronoun} nhé: {prod['url']}"
+                    send_text(sender_id, msg)
+                    time.sleep(20)
+                    bot_sending.discard(sender_id)
+                    return
+                else:
+                    # Khách hỏi mẫu số không tồn tại
+                    time.sleep(1)
+                    bot_sending.add(sender_id)
+                    send_text(sender_id, f"Dạ bên em chỉ gợi ý được {len(pending)} mẫu thôi {pronoun} ơi. {pronoun} thích mẫu nào trong số đó ạ?")
+                    time.sleep(10)
+                    bot_sending.discard(sender_id)
+                    return
 
         is_first = sender_id not in greeted_users
 
