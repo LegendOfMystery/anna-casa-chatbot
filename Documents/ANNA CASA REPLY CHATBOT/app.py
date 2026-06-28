@@ -35,6 +35,7 @@ human_names: dict[str, str] = {}
 greeted_users: set = set()
 conversations: dict[str, list] = {}
 user_category: dict[str, str] = {}  # psid -> "tham" | "giay_dan_tuong" | None
+user_pending_products: dict[str, list] = {}  # psid -> [product dicts] đang chờ khách chọn
 notification_feed = deque(maxlen=100)
 bot_enabled = True
 asked_zalo: set = set()  # Đã hỏi Zalo → dừng reply
@@ -326,11 +327,15 @@ THÔNG TIN BÁN GIẤY DÁN TƯỜNG:
 - Phí thi công: 120.000đ/m²
 - Khi khách hỏi giá → báo giá vật liệu từ website + nhắc thêm phí thi công 120k/m²
 
-KHI GỢI Ý SẢN PHẨM:
-- Gợi ý tối đa 3 sản phẩm, mỗi mẫu 1 dòng ngắn + link
-- Chọn mẫu khớp nhu cầu từ đúng danh mục (thảm hoặc giấy dán tường)
-- Kèm link để khách xem ảnh thực tế
+KHI GỢI Ý SẢN PHẨM THẢM:
+- Chọn tối đa 3 sản phẩm phù hợp nhất
+- Mỗi mẫu chỉ ghi tên ngắn + link, format: "Mẫu 1: [tên] [link]\nMẫu 2: [tên] [link]\nMẫu 3: [tên] [link]"
+- KHÔNG viết thêm mô tả dài, hệ thống sẽ tự gửi ảnh
 - Nếu không có mẫu khớp: nói thật, hỏi thêm để tìm mẫu gần nhất
+
+KHI GỢI Ý SẢN PHẨM GIẤY DÁN TƯỜNG:
+- Gợi ý tối đa 3 sản phẩm, mỗi mẫu 1 dòng ngắn + link
+- Kèm link để khách xem ảnh thực tế
 
 KHI KHÁCH GỬI HÌNH:
 - Phân tích màu + họa tiết trong ảnh
@@ -567,6 +572,24 @@ def process_message(sender_id, text):
                 return
         # ─────────────────────────────────────────────────────────────────────
 
+        # Detect khách chọn mẫu 1/2/3
+        pending = user_pending_products.get(sender_id, [])
+        if pending:
+            t_lower = text.strip().lower()
+            idx = None
+            if t_lower in ("1", "mẫu 1", "một", "mau 1", "số 1", "so 1"): idx = 0
+            elif t_lower in ("2", "mẫu 2", "hai", "mau 2", "số 2", "so 2"): idx = 1
+            elif t_lower in ("3", "mẫu 3", "ba", "mau 3", "số 3", "so 3"): idx = 2
+            if idx is not None and idx < len(pending):
+                prod = pending[idx]
+                user_pending_products.pop(sender_id, None)
+                time.sleep(2)
+                bot_sending.add(sender_id)
+                send_text(sender_id, f"Dạ {pronoun} chọn {prod['name']} nha. Link xem chi tiết và đặt hàng: {prod['url']}")
+                time.sleep(20)
+                bot_sending.discard(sender_id)
+                return
+
         is_first = sender_id not in greeted_users
 
         # Detect category từ tin nhắn nếu chưa biết
@@ -686,13 +709,18 @@ def process_message(sender_id, text):
 
         # Gửi ảnh thảm nếu reply có link sản phẩm thảm
         if cat == "tham":
-            url_to_img = {p["url"]: p.get("img", "") for p in fetch_products_by_category("tham")}
+            all_rugs = {p["url"]: p for p in fetch_products_by_category("tham")}
             found_urls = re.findall(r'https://annacasavn\.com/tham[^\s\)\"]+', clean_reply)
-            for prod_url in found_urls[:3]:
-                img_url = url_to_img.get(prod_url, "")
-                if img_url:
+            matched = [all_rugs[u] for u in found_urls[:3] if u in all_rugs and all_rugs[u].get("img")]
+            if matched:
+                user_pending_products[sender_id] = matched
+                for i, prod in enumerate(matched, 1):
                     time.sleep(1)
-                    send_image(sender_id, img_url)
+                    send_text(sender_id, f"Mẫu {i}: {prod['name']}")
+                    time.sleep(1)
+                    send_image(sender_id, prod["img"])
+                time.sleep(1)
+                send_text(sender_id, f"Dạ {pronoun} thích mẫu nào ạ?")
 
         # Gửi confirm appointment nếu Claude detect khách đồng ý ngay trong reply
         if appointment_flag:
