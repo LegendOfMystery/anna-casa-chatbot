@@ -619,17 +619,24 @@ def process_message(sender_id, text):
         # Detect khách chọn mẫu 1/2/3
         pending = user_pending_products.get(sender_id, [])
         if pending:
-            t_lower = text.strip().lower()
+            import unicodedata
+            t_norm = unicodedata.normalize("NFC", text.strip().lower())
             idx = None
-            if any(k in t_lower for k in ("mẫu 1", "mau 1", "số 1", "so 1", "cái 1")) or t_lower in ("1", "một", "1ạ", "1 ạ"): idx = 0
-            elif any(k in t_lower for k in ("mẫu 2", "mau 2", "số 2", "so 2", "cái 2")) or t_lower in ("2", "hai", "2ạ", "2 ạ"): idx = 1
-            elif any(k in t_lower for k in ("mẫu 3", "mau 3", "số 3", "so 3", "cái 3")) or t_lower in ("3", "ba", "3ạ", "3 ạ"): idx = 2
+            p1 = ("mẫu 1", "mau 1", "số 1", "so 1", "cái 1", "mau so 1", "số một", "thứ nhất", "mẫu một")
+            p2 = ("mẫu 2", "mau 2", "số 2", "so 2", "cái 2", "mau so 2", "số hai", "thứ hai", "mẫu hai")
+            p3 = ("mẫu 3", "mau 3", "số 3", "so 3", "cái 3", "mau so 3", "số ba", "thứ ba", "mẫu ba")
+            if any(k in t_norm for k in p1) or t_norm in ("1", "một", "1ạ", "1 ạ"): idx = 0
+            elif any(k in t_norm for k in p2) or t_norm in ("2", "hai", "2ạ", "2 ạ"): idx = 1
+            elif any(k in t_norm for k in p3) or t_norm in ("3", "ba", "3ạ", "3 ạ"): idx = 2
             if idx is not None and idx < len(pending):
                 prod = pending[idx]
                 user_pending_products.pop(sender_id, None)
+                material_desc = get_material_benefit(prod.get("material", "")) if prod.get("material") else ""
+                origin = prod.get("origin", "")
                 time.sleep(2)
                 bot_sending.add(sender_id)
-                send_text(sender_id, f"Dạ {pronoun} xem chi tiết và giá mẫu này tại: {prod['url']}")
+                msg = f"Dạ đây là link xem chi tiết và đặt hàng mẫu {idx+1} {pronoun} nhé: {prod['url']}"
+                send_text(sender_id, msg)
                 time.sleep(20)
                 bot_sending.discard(sender_id)
                 return
