@@ -723,10 +723,14 @@ def process_message(sender_id, text):
             if matched:
                 user_pending_products[sender_id] = matched
                 for i, prod in enumerate(matched, 1):
-                    material = get_material_info(prod["name"])
+                    material = prod.get("material", "") or get_material_info(prod["name"])
+                    origin = prod.get("origin", "")
                     label = f"Mẫu {i}: {prod['name']}"
                     if material:
-                        label += f"\nDạ mẫu này {material} ạ"
+                        mat_line = f"Dạ mẫu này {material}"
+                        if origin:
+                            mat_line += f", nhập khẩu từ {origin}"
+                        label += f"\n{mat_line} ạ"
                     time.sleep(1)
                     send_text(sender_id, label)
                     time.sleep(1)
