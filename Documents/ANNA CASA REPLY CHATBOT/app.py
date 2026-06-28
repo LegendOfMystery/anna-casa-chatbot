@@ -29,8 +29,23 @@ client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
 # ── IN-MEMORY STORE ───────────────────────────────────────────────────────────
 processed_messages: set = set()
-bot_sending: set = set()
+_bot_sending_count: dict = {}  # psid -> int, reference-counted
 human_mode: set = set()
+
+class _BotSendingProxy:
+    """Reference-counted replacement for bot_sending set to handle concurrent threads."""
+    def add(self, sid):
+        _bot_sending_count[sid] = _bot_sending_count.get(sid, 0) + 1
+    def discard(self, sid):
+        count = _bot_sending_count.get(sid, 0) - 1
+        if count <= 0:
+            _bot_sending_count.pop(sid, None)
+        else:
+            _bot_sending_count[sid] = count
+    def __contains__(self, sid):
+        return _bot_sending_count.get(sid, 0) > 0
+
+bot_sending = _BotSendingProxy()
 human_names: dict[str, str] = {}
 greeted_users: set = set()
 conversations: dict[str, list] = {}
