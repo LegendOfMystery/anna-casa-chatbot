@@ -663,16 +663,18 @@ def process_message(sender_id, text):
 
         is_first = sender_id not in greeted_users
 
-        # Detect category từ tin nhắn nếu chưa biết
+        # Detect category — luôn cho phép switch nếu tin nhắn có keyword rõ ràng
         cat = user_category.get(sender_id)
-        if not cat:
-            t = text.lower()
-            if any(k in t for k in ["thảm", "tham", "carpet", "rug"]):
+        t = text.lower()
+        if any(k in t for k in ["giấy dán tường", "giay dan tuong", "wallpaper", "giấy dán", "giay dan"]):
+            cat = "giay_dan_tuong"
+            user_category[sender_id] = cat
+            user_pending_products.pop(sender_id, None)  # clear pending thảm nếu có
+        elif any(k in t for k in ["thảm", "tham", "carpet", "rug"]):
+            if not cat or cat != "tham":
                 cat = "tham"
                 user_category[sender_id] = cat
-            elif any(k in t for k in ["giấy", "giay", "tường", "tuong", "wallpaper"]):
-                cat = "giay_dan_tuong"
-                user_category[sender_id] = cat
+                user_pending_products.pop(sender_id, None)
 
         # Tin đầu tiên + chưa rõ category → hardcode greeting, không gọi Claude
         if is_first and not cat:
