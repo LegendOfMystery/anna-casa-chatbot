@@ -1061,7 +1061,6 @@ def api_reactivate():
     cid = data.get("customer_id", "").strip()
     if cid:
         human_mode.discard(cid)
-        greeted_users.discard(cid)
         asked_zalo.discard(cid)
         invite_sent.discard(cid)
         appointment_done.discard(cid)
