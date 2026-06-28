@@ -631,19 +631,17 @@ def process_message(sender_id, text):
             if idx is not None:
                 if idx < len(pending):
                     prod = pending[idx]
-                    user_pending_products.pop(sender_id, None)
+                    # Không xóa pending — khách có thể hỏi thêm mẫu khác
                     time.sleep(2)
                     bot_sending.add(sender_id)
-                    msg = f"Dạ đây là link xem chi tiết và đặt hàng mẫu {idx+1} {pronoun} nhé: {prod['url']}"
-                    send_text(sender_id, msg)
+                    send_text(sender_id, f"Dạ link xem chi tiết và giá mẫu {idx+1}: {prod['url']}")
                     time.sleep(20)
                     bot_sending.discard(sender_id)
                     return
                 else:
-                    # Khách hỏi mẫu số không tồn tại
                     time.sleep(1)
                     bot_sending.add(sender_id)
-                    send_text(sender_id, f"Dạ bên em chỉ gợi ý được {len(pending)} mẫu thôi {pronoun} ơi. {pronoun} thích mẫu nào trong số đó ạ?")
+                    send_text(sender_id, f"Dạ bên em chỉ gợi ý được {len(pending)} mẫu thôi {pronoun} ơi. {pronoun} muốn xem mẫu nào ạ?")
                     time.sleep(10)
                     bot_sending.discard(sender_id)
                     return
