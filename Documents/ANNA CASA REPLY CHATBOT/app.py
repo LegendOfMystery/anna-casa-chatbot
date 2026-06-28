@@ -623,7 +623,7 @@ def process_message(sender_id, text):
                     time.sleep(2)
                     bot_sending.add(sender_id)
                     send_text(sender_id, f"Dạ link xem chi tiết và giá mẫu {idx+1}: {prod['url']}")
-                    time.sleep(20)
+                    time.sleep(35)
                     bot_sending.discard(sender_id)
                     return
                 else:
@@ -838,7 +838,7 @@ def process_message(sender_id, text):
             time.sleep(1)
             send_file(sender_id, CATALOGUES["wallpaper_2"])
 
-        time.sleep(20)
+        time.sleep(35)
         bot_sending.discard(sender_id)
 
     except Exception as e:
