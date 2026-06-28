@@ -240,6 +240,27 @@ def fetch_products_by_category(category: str) -> list[dict]:
     fetch_all_products()  # ensure cache loaded
     return _catalog_cache.get(category, [])
 
+_MATERIAL_MAP = [
+    (["lông cừu", "wool", "len cừu"],       "Lông cừu tự nhiên", "ấm áp, mềm mại, thân thiện môi trường"),
+    (["len", "broadway", "mehari", "canyon", "argentum", "high line"], "Len tự nhiên", "bền, ấm, chống bụi bẩn tốt"),
+    (["haima", "jaipur", "hand tufted", "hand knot", "dệt tay"], "Len dệt tay", "thủ công, độc đáo, bền theo thời gian"),
+    (["shaggy", "furry", "fluffy"],          "Sợi dài (Shaggy)", "mềm mại, tạo cảm giác ấm cúng, sang trọng"),
+    (["sisal", "jute", "coir"],              "Sợi tự nhiên (Sisal/Jute)", "thân thiện môi trường, thoáng khí, bền"),
+    (["polypropylene", "pp ", " pp"],        "Polypropylene", "bền bỉ, dễ vệ sinh, chống ẩm mốc"),
+    (["polyester", "pet "],                  "Polyester", "mềm mại, màu sắc tươi, dễ vệ sinh"),
+    (["viscose", "bamboo", "silk"],          "Viscose/Bamboo Silk", "óng ánh, mềm mịn, sang trọng"),
+]
+
+def get_material_info(name: str) -> str:
+    name_lower = name.lower()
+    for keywords, material, benefit in _MATERIAL_MAP:
+        if any(k in name_lower for k in keywords):
+            return f"{material} — {benefit}"
+    # UA thảm thường là polypropylene/polyester
+    if "ua " in name_lower or " ua" in name_lower:
+        return "Polypropylene/Polyester — bền bỉ, dễ vệ sinh, chống ẩm mốc"
+    return ""
+
 def format_products_for_claude(products: list[dict], category: str = None) -> str:
     if not products:
         return "Không có dữ liệu sản phẩm."
@@ -703,8 +724,12 @@ def process_message(sender_id, text):
             if matched:
                 user_pending_products[sender_id] = matched
                 for i, prod in enumerate(matched, 1):
+                    material = get_material_info(prod["name"])
+                    label = f"Mẫu {i}: {prod['name']}"
+                    if material:
+                        label += f"\n{material}"
                     time.sleep(1)
-                    send_text(sender_id, f"Mẫu {i}:")
+                    send_text(sender_id, label)
                     time.sleep(1)
                     send_image(sender_id, prod["img"])
                 time.sleep(1)
