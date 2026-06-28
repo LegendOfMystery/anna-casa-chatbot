@@ -28,6 +28,8 @@ ESCALATE_NOTIFY_URL = os.environ.get("ESCALATE_NOTIFY_URL", "")
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
 # ── IN-MEMORY STORE ───────────────────────────────────────────────────────────
+import time as _time
+SERVER_START_TIME = _time.time()  # bỏ qua echoes trong 60s đầu sau restart
 processed_messages: set = set()
 _bot_sending_count: dict = {}  # psid -> int, reference-counted
 human_mode: set = set()
@@ -982,6 +984,9 @@ def receive_webhook():
             # ─────────────────────────────────────────────────────────────────
 
             if is_echo:
+                # Bỏ qua mọi echo trong 60s đầu sau server restart (tránh HANDOFF giả từ echo cũ)
+                if _time.time() - SERVER_START_TIME < 60:
+                    continue
                 customer_id = event.get("recipient", {}).get("id")
                 if not customer_id: continue
                 if customer_id in bot_sending: continue
