@@ -72,10 +72,10 @@ APPOINTMENT_CONFIRM = [
 ]
 
 APPOINTMENT_POSITIVE = [
-    r"\bcó\b", r"\bokay\b", r"\bok\b", r"\bđược\b", r"\bmuốn\b",
-    r"\bghé\b", r"\bđến\b", r"\bxem\b", r"\bthăm\b", r"\bvô\b",
-    r"\bvào\b", r"\bsẽ ghé\b", r"\bsẽ đến\b", r"\bnhé\b",
-    r"\byes\b", r"\bsure\b", r"\bthích\b",
+    r"\bcó\b", r"\bokay\b", r"\bok\b", r"\bđược\b", r"\bmuốn ghé\b",
+    r"\bghé\b", r"\bđến xem\b", r"\bthăm\b", r"\bvô xem\b",
+    r"\bsẽ ghé\b", r"\bsẽ đến\b",
+    r"\byes\b", r"\bsure\b",
 ]
 APPOINTMENT_NEGATIVE = [
     r"\bkhông\b", r"\bko\b", r"^\bk\b$", r"\bchưa\b",
@@ -604,34 +604,7 @@ def process_message(sender_id, text):
             bot_sending.discard(sender_id)
             return
 
-        # ── APPOINTMENT CONFIRMATION CHECK ────────────────────────────────────
-        if sender_id in invite_sent and sender_id not in appointment_done:
-            if is_appointment_confirmed(text):
-                appointment_done.add(sender_id)
-                threading.Thread(
-                    target=log_appointment_to_sheet,
-                    args=(sender_id,),
-                    daemon=True
-                ).start()
-                time.sleep(3)
-                if is_human_handling(sender_id): return
-                bot_sending.add(sender_id)
-                for msg_template in APPOINTMENT_CONFIRM:
-                    msg = msg_template.format(
-                        pronoun=pronoun,
-                        pronoun_cap=pronoun.capitalize(),
-                        address=SHOWROOM_ADDRESS,
-                        hours=SHOWROOM_HOURS,
-                        hotline=SHOWROOM_HOTLINE
-                    )
-                    send_text(sender_id, msg)
-                    time.sleep(1)
-                time.sleep(10)
-                bot_sending.discard(sender_id)
-                return
-        # ─────────────────────────────────────────────────────────────────────
-
-        # Detect khách chọn mẫu 1/2/3
+        # Detect khách chọn mẫu 1/2/3 — PHẢI check trước appointment để "xem mẫu 3" không bị nhầm
         pending = user_pending_products.get(sender_id, [])
         if pending:
             import unicodedata
@@ -660,6 +633,33 @@ def process_message(sender_id, text):
                     time.sleep(10)
                     bot_sending.discard(sender_id)
                     return
+
+        # ── APPOINTMENT CONFIRMATION CHECK ────────────────────────────────────
+        if sender_id in invite_sent and sender_id not in appointment_done:
+            if is_appointment_confirmed(text):
+                appointment_done.add(sender_id)
+                threading.Thread(
+                    target=log_appointment_to_sheet,
+                    args=(sender_id,),
+                    daemon=True
+                ).start()
+                time.sleep(3)
+                if is_human_handling(sender_id): return
+                bot_sending.add(sender_id)
+                for msg_template in APPOINTMENT_CONFIRM:
+                    msg = msg_template.format(
+                        pronoun=pronoun,
+                        pronoun_cap=pronoun.capitalize(),
+                        address=SHOWROOM_ADDRESS,
+                        hours=SHOWROOM_HOURS,
+                        hotline=SHOWROOM_HOTLINE
+                    )
+                    send_text(sender_id, msg)
+                    time.sleep(1)
+                time.sleep(10)
+                bot_sending.discard(sender_id)
+                return
+        # ─────────────────────────────────────────────────────────────────────
 
         is_first = sender_id not in greeted_users
 
