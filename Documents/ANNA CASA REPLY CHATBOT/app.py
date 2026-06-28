@@ -417,6 +417,22 @@ CATALOGUES = {
     "wallpaper_2": "https://drive.google.com/uc?export=download&id=1TdGLS_6u2FVCNJMEhL2FhQ5T1_cQ7Xn9&confirm=t",
 }
 
+def send_image(recipient_id, image_url):
+    url = f"https://graph.facebook.com/v18.0/me/messages?access_token={META_PAGE_TOKEN}"
+    payload = {
+        "recipient": {"id": recipient_id},
+        "message": {
+            "attachment": {
+                "type": "image",
+                "payload": {"url": image_url, "is_reusable": True}
+            }
+        }
+    }
+    try:
+        requests.post(url, json=payload, timeout=15).raise_for_status()
+    except Exception as e:
+        print(f"send_image failed: {e}")
+
 def send_file(recipient_id, file_url):
     url = f"https://graph.facebook.com/v18.0/me/messages?access_token={META_PAGE_TOKEN}"
     payload = {
@@ -667,6 +683,16 @@ def process_message(sender_id, text):
                 send_text(sender_id, clean_reply)
         else:
             send_text(sender_id, clean_reply)
+
+        # Gửi ảnh thảm nếu reply có link sản phẩm thảm
+        if cat == "tham":
+            url_to_img = {p["url"]: p.get("img", "") for p in fetch_products_by_category("tham")}
+            found_urls = re.findall(r'https://annacasavn\.com/tham[^\s\)\"]+', clean_reply)
+            for prod_url in found_urls[:3]:
+                img_url = url_to_img.get(prod_url, "")
+                if img_url:
+                    time.sleep(1)
+                    send_image(sender_id, img_url)
 
         # Gửi confirm appointment nếu Claude detect khách đồng ý ngay trong reply
         if appointment_flag:
