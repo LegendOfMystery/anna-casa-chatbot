@@ -650,10 +650,11 @@ def process_message(sender_id, text):
             asked_zalo.add(sender_id)
             print(f"[ZALO] {sender_id} requested Zalo contact")
 
-        time.sleep(5)
-        if is_human_handling(sender_id): return
-
         bot_sending.add(sender_id)
+        time.sleep(5)
+        if is_human_handling(sender_id):
+            bot_sending.discard(sender_id)
+            return
 
         # Tin đầu tiên → tách câu chào thành tin riêng
         if is_first:
