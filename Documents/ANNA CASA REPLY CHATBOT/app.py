@@ -577,15 +577,15 @@ def process_message(sender_id, text):
         if pending:
             t_lower = text.strip().lower()
             idx = None
-            if t_lower in ("1", "mẫu 1", "một", "mau 1", "số 1", "so 1"): idx = 0
-            elif t_lower in ("2", "mẫu 2", "hai", "mau 2", "số 2", "so 2"): idx = 1
-            elif t_lower in ("3", "mẫu 3", "ba", "mau 3", "số 3", "so 3"): idx = 2
+            if any(k in t_lower for k in ("mẫu 1", "mau 1", "số 1", "so 1", "cái 1")) or t_lower in ("1", "một", "1ạ", "1 ạ"): idx = 0
+            elif any(k in t_lower for k in ("mẫu 2", "mau 2", "số 2", "so 2", "cái 2")) or t_lower in ("2", "hai", "2ạ", "2 ạ"): idx = 1
+            elif any(k in t_lower for k in ("mẫu 3", "mau 3", "số 3", "so 3", "cái 3")) or t_lower in ("3", "ba", "3ạ", "3 ạ"): idx = 2
             if idx is not None and idx < len(pending):
                 prod = pending[idx]
                 user_pending_products.pop(sender_id, None)
                 time.sleep(2)
                 bot_sending.add(sender_id)
-                send_text(sender_id, f"Dạ {pronoun} chọn {prod['name']} nha. Link xem chi tiết và đặt hàng: {prod['url']}")
+                send_text(sender_id, f"Dạ {pronoun} xem chi tiết và giá mẫu này tại: {prod['url']}")
                 time.sleep(20)
                 bot_sending.discard(sender_id)
                 return
@@ -695,19 +695,7 @@ def process_message(sender_id, text):
             bot_sending.discard(sender_id)
             return
 
-        # Tin đầu tiên → tách câu chào thành tin riêng
-        if is_first:
-            parts = re.split(r'(?<=nha\.)\s+|(?<=nha,)\s+', clean_reply, maxsplit=1)
-            if len(parts) == 2:
-                send_text(sender_id, parts[0].strip())
-                time.sleep(1)
-                send_text(sender_id, parts[1].strip())
-            else:
-                send_text(sender_id, clean_reply)
-        else:
-            send_text(sender_id, clean_reply)
-
-        # Gửi ảnh thảm nếu reply có link sản phẩm thảm
+        # Gửi ảnh thảm nếu reply có link sản phẩm thảm — không gửi text reply
         if cat == "tham":
             all_rugs = {p["url"]: p for p in fetch_products_by_category("tham")}
             found_urls = re.findall(r'https://annacasavn\.com/tham[^\s\)\"]+', clean_reply)
@@ -716,11 +704,36 @@ def process_message(sender_id, text):
                 user_pending_products[sender_id] = matched
                 for i, prod in enumerate(matched, 1):
                     time.sleep(1)
-                    send_text(sender_id, f"Mẫu {i}: {prod['name']}")
+                    send_text(sender_id, f"Mẫu {i}:")
                     time.sleep(1)
                     send_image(sender_id, prod["img"])
                 time.sleep(1)
                 send_text(sender_id, f"Dạ {pronoun} thích mẫu nào ạ?")
+                # Bỏ qua text reply từ Claude khi đã gửi ảnh
+            else:
+                # Không có ảnh → gửi text bình thường
+                if is_first:
+                    parts = re.split(r'(?<=nha\.)\s+|(?<=nha,)\s+', clean_reply, maxsplit=1)
+                    if len(parts) == 2:
+                        send_text(sender_id, parts[0].strip())
+                        time.sleep(1)
+                        send_text(sender_id, parts[1].strip())
+                    else:
+                        send_text(sender_id, clean_reply)
+                else:
+                    send_text(sender_id, clean_reply)
+        else:
+            # Tin đầu tiên → tách câu chào thành tin riêng
+            if is_first:
+                parts = re.split(r'(?<=nha\.)\s+|(?<=nha,)\s+', clean_reply, maxsplit=1)
+                if len(parts) == 2:
+                    send_text(sender_id, parts[0].strip())
+                    time.sleep(1)
+                    send_text(sender_id, parts[1].strip())
+                else:
+                    send_text(sender_id, clean_reply)
+            else:
+                send_text(sender_id, clean_reply)
 
         # Gửi confirm appointment nếu Claude detect khách đồng ý ngay trong reply
         if appointment_flag:
