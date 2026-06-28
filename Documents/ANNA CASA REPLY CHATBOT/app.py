@@ -715,7 +715,7 @@ def process_message(sender_id, text):
             time.sleep(1)
             send_file(sender_id, CATALOGUES["wallpaper_2"])
 
-        time.sleep(10)
+        time.sleep(20)
         bot_sending.discard(sender_id)
 
     except Exception as e:
