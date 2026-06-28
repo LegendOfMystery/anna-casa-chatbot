@@ -620,14 +620,14 @@ def process_message(sender_id, text):
         pending = user_pending_products.get(sender_id, [])
         if pending:
             import unicodedata
-            t_norm = unicodedata.normalize("NFC", text.strip().lower())
+            def strip_accents(s):
+                return ''.join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
+            t_ascii = strip_accents(text.strip().lower())
             idx = None
-            p1 = ("mẫu 1", "mau 1", "số 1", "so 1", "cái 1", "mau so 1", "số một", "thứ nhất", "mẫu một")
-            p2 = ("mẫu 2", "mau 2", "số 2", "so 2", "cái 2", "mau so 2", "số hai", "thứ hai", "mẫu hai")
-            p3 = ("mẫu 3", "mau 3", "số 3", "so 3", "cái 3", "mau so 3", "số ba", "thứ ba", "mẫu ba")
-            if any(k in t_norm for k in p1) or t_norm in ("1", "một", "1ạ", "1 ạ"): idx = 0
-            elif any(k in t_norm for k in p2) or t_norm in ("2", "hai", "2ạ", "2 ạ"): idx = 1
-            elif any(k in t_norm for k in p3) or t_norm in ("3", "ba", "3ạ", "3 ạ"): idx = 2
+            if any(k in t_ascii for k in ("mau 1","so 1","so mot","thu nhat","mau mot")) or t_ascii.strip() in ("1","mot"): idx = 0
+            elif any(k in t_ascii for k in ("mau 2","so 2","so hai","thu hai","mau hai")) or t_ascii.strip() in ("2","hai"): idx = 1
+            elif any(k in t_ascii for k in ("mau 3","so 3","so ba","thu ba","mau ba")) or t_ascii.strip() in ("3","ba"): idx = 2
+            print(f"[DEBUG mau] t_ascii={repr(t_ascii)} idx={idx} pending_len={len(pending)}")
             if idx is not None:
                 if idx < len(pending):
                     prod = pending[idx]
