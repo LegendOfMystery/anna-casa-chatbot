@@ -862,7 +862,7 @@ def process_message(sender_id, text):
 
 
 # ── PROCESS IMAGE MESSAGE ─────────────────────────────────────────────────────
-def process_image(sender_id, image_url):
+def process_image(sender_id, image_url, caption=""):
     try:
         sender_name = get_sender_name(sender_id)
         human_names[sender_id] = sender_name
@@ -911,7 +911,7 @@ def process_image(sender_id, image_url):
                 },
                 {
                     "type": "text",
-                    "text": "Khách gửi hình này. Phân tích màu sắc và họa tiết, sau đó tìm trong dữ liệu sản phẩm những mẫu thảm tương tự và gợi ý cho khách."
+                    "text": f"Khách gửi hình này{f' kèm tin nhắn: \"{caption}\"' if caption else ''}. Nếu khách hỏi về sản phẩm không phải thảm (sofa, bàn, đèn...) thì reply [ESCALATE] + 'Dạ sản phẩm này em sẽ nhờ chuyên viên hỗ trợ anh chị thêm ạ'. Nếu khách hỏi về thảm hoặc không rõ → phân tích màu sắc và họa tiết trong ảnh, tìm mẫu thảm tương tự và gợi ý."
                 }
             ]
         }
@@ -1040,7 +1040,7 @@ def receive_webhook():
                         if image_url and not is_asking_similar(text):
                             threading.Thread(
                                 target=process_image,
-                                args=(sender_id, image_url),
+                                args=(sender_id, image_url, text or ""),
                                 daemon=True
                             ).start()
                 if not has_image:
