@@ -1005,9 +1005,21 @@ def receive_webhook():
                     continue
                 # Bỏ qua Facebook automated messages (Instant Reply, away message...)
                 _echo_text = message.get("text", "")
-                _AUTOMATED_PREFIXES = ("cảm ơn anh chị đã nhắn tin", "cam on anh chi da nhan tin",
-                                       "chuyên viên anna casa", "chuyen vien anna casa")
-                if any(_echo_text.lower().startswith(p) for p in _AUTOMATED_PREFIXES):
+                _et = _echo_text.lower()
+                _AUTOMATED_FRAGMENTS = (
+                    "cảm ơn anh chị đã nhắn tin",
+                    "cam on anh chi da nhan tin",
+                    "chuyên viên anna casa",
+                    "chuyen vien anna casa",
+                    "anna casa chuyên nội thất",
+                    "anna casa chuyen noi that",
+                    "chúng tôi có thể giúp gì cho bạn",
+                    "chung toi co the giup gi cho ban",
+                    "chúng tôi có thể hỗ trợ gì cho bạn",
+                    "chung toi co the ho tro gi cho ban",
+                    "xin chào,",   # "Xin chào, (tên)! Chúng tôi..."
+                )
+                if any(f in _et for f in _AUTOMATED_FRAGMENTS):
                     continue
                 customer_id = event.get("recipient", {}).get("id")
                 if not customer_id: continue
