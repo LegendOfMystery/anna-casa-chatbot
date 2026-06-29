@@ -1003,6 +1003,12 @@ def receive_webhook():
                 # Bỏ qua echo của messages bot đã gửi (kể cả echo trễ/trùng)
                 if message_id and message_id in bot_sent_mids:
                     continue
+                # Bỏ qua Facebook automated messages (Instant Reply, away message...)
+                _echo_text = message.get("text", "")
+                _AUTOMATED_PREFIXES = ("cảm ơn anh chị đã nhắn tin", "cam on anh chi da nhan tin",
+                                       "chuyên viên anna casa", "chuyen vien anna casa")
+                if any(_echo_text.lower().startswith(p) for p in _AUTOMATED_PREFIXES):
+                    continue
                 customer_id = event.get("recipient", {}).get("id")
                 if not customer_id: continue
                 if customer_id in bot_sending: continue
