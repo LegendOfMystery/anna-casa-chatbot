@@ -1030,10 +1030,12 @@ def receive_webhook():
                 print(f"[SKIP] Customer already requested Zalo for {sender_id}")
                 continue
 
-            # Xử lý ảnh
+            # Xử lý ảnh / video / share
             if attachments:
+                has_image = False
                 for att in attachments:
                     if att.get("type") == "image":
+                        has_image = True
                         image_url = att.get("payload", {}).get("url", "")
                         if image_url and not is_asking_similar(text):
                             threading.Thread(
@@ -1041,6 +1043,13 @@ def receive_webhook():
                                 args=(sender_id, image_url),
                                 daemon=True
                             ).start()
+                if not has_image:
+                    # Video, Reel, sticker, share — không phân tích được
+                    threading.Thread(
+                        target=process_message,
+                        args=(sender_id, text or "[Khách gửi video/Reel/file — không xem được nội dung. Hỏi khách muốn tư vấn sản phẩm gì hoặc nhờ gửi ảnh tĩnh.]"),
+                        daemon=True
+                    ).start()
                 continue
 
             # Xử lý text
