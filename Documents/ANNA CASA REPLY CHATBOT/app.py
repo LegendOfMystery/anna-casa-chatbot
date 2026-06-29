@@ -423,7 +423,7 @@ TUYỆT ĐỐI KHÔNG:
 - Tư vấn sản phẩm không phải thảm
 - Hỏi lại những gì khách đã nói
 - Dùng dấu gạch chéo, em dash, chấm lửng
-- Gửi catalogue PDF
+- Gửi catalogue PDF (thay vào đó gửi link: https://annacasavn.com/giay-dan-tuong cho giấy dán tường, https://annacasavn.com/tham cho thảm)
 
 Dữ liệu sản phẩm thảm hiện có:
 {product_data}"""
@@ -592,7 +592,10 @@ def process_message(sender_id, text):
         # Wallpaper catalogue trigger — rule cứng, không cần Claude
         WP_TRIGGERS = ["catalogue giấy dán tường", "catalog giấy dán tường",
                        "catalogue giay dan tuong", "catalog giay dan tuong",
-                       "nhận catalogue", "nhận catalog"]
+                       "nhận catalogue", "nhận catalog",
+                       "xin catalog", "xin catalogue", "gửi catalog", "gửi catalogue",
+                       "cho xin catalog", "cho xin catalogue",
+                       "xem catalog", "xem catalogue"]
         if any(t in text.lower() for t in WP_TRIGGERS):
             time.sleep(5)
             if is_human_handling(sender_id): return
