@@ -32,6 +32,7 @@ import time as _time
 SERVER_START_TIME = _time.time()  # bỏ qua echoes trong 60s đầu sau restart
 processed_messages: set = set()
 _bot_sending_count: dict = {}  # psid -> int, reference-counted
+bot_sent_mids: set = set()     # message IDs sent by bot — echoes of these are always ignored
 human_mode: set = set()
 
 class _BotSendingProxy:
@@ -437,7 +438,11 @@ def send_text(recipient_id, text):
     url = f"https://graph.facebook.com/v18.0/me/messages?access_token={META_PAGE_TOKEN}"
     payload = {"recipient": {"id": recipient_id}, "message": {"text": text}}
     try:
-        requests.post(url, json=payload, timeout=10).raise_for_status()
+        r = requests.post(url, json=payload, timeout=10)
+        r.raise_for_status()
+        mid = r.json().get("message_id")
+        if mid:
+            bot_sent_mids.add(mid)
     except Exception as e:
         print(f"send_text failed: {e}")
 
@@ -992,6 +997,9 @@ def receive_webhook():
             if is_echo:
                 # Bỏ qua mọi echo trong 60s đầu sau server restart (tránh HANDOFF giả từ echo cũ)
                 if _time.time() - SERVER_START_TIME < 60:
+                    continue
+                # Bỏ qua echo của messages bot đã gửi (kể cả echo trễ/trùng)
+                if message_id and message_id in bot_sent_mids:
                     continue
                 customer_id = event.get("recipient", {}).get("id")
                 if not customer_id: continue
