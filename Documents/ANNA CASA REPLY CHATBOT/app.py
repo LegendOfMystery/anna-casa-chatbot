@@ -678,8 +678,11 @@ def process_message(sender_id, text):
                 user_category[sender_id] = cat
                 user_pending_products.pop(sender_id, None)
 
-        # Tin đầu tiên + chưa rõ category → hardcode greeting, không gọi Claude
-        if is_first and not cat:
+        # Tin đầu tiên + chưa rõ category + chỉ là greeting thuần → hardcode, không gọi Claude
+        _generic_greetings = {"hi", "hello", "chào", "chao", "hey", "alo", "ơi", "oi", "xin chào", "xin chao"}
+        _t_stripped = text.strip().lower().rstrip("!. ")
+        _is_generic = _t_stripped in _generic_greetings or len(_t_stripped) <= 5
+        if is_first and not cat and _is_generic:
             greeted_users.add(sender_id)
             name_part = f" {first_name}" if first_name else ""
             line1 = f"Anna Casa xin chào {pronoun}{name_part}, em là Mai trợ lý AI tư vấn tại Anna Casa Vietnam."
