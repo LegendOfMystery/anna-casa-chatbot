@@ -343,6 +343,7 @@ KHI NÀO REPLY:
 - Khách gửi hình → phân tích và gợi ý sản phẩm tương tự
 - Khách hỏi về sản phẩm khác (sofa, bàn ăn, ghế, đèn...) → thêm [ESCALATE] để chuyển sale, reply: "Dạ sản phẩm này em sẽ nhờ chuyên viên hỗ trợ anh chị thêm"
 - Tin nhắn chào hỏi hoặc hỏi chung chung chưa rõ sản phẩm → hỏi: "Dạ anh chị đang cần tư vấn sản phẩm gì ạ, bên em có thảm và giấy dán tường"
+- Khách hỏi về sofa, bàn cà phê (coffee table), ghế, đèn, bàn ăn, tủ, kệ, hoặc bất kỳ sản phẩm nào KHÔNG PHẢI thảm hoặc giấy dán tường → reply "Dạ sản phẩm này em sẽ nhờ chuyên viên hỗ trợ anh chị thêm ạ" và thêm [ESCALATE]
 - Tin nhắn không liên quan gì → trả về [SKIP]
 
 THÔNG TIN SHOWROOM:
@@ -687,7 +688,8 @@ def process_message(sender_id, text):
                 user_pending_products.pop(sender_id, None)
 
         # Tin đầu tiên + chưa rõ category + chỉ là greeting thuần → hardcode, không gọi Claude
-        _generic_greetings = {"hi", "hello", "chào", "chao", "hey", "alo", "ơi", "oi", "xin chào", "xin chao"}
+        _generic_greetings = {"hi", "hello", "chào", "chao", "hey", "alo", "ơi", "oi",
+                               "xin chào", "xin chao", "get started", "bắt đầu", "bat dau"}
         _t_stripped = text.strip().lower().rstrip("!. ")
         _is_generic = _t_stripped in _generic_greetings or len(_t_stripped) <= 5
         if is_first and not cat and _is_generic:
