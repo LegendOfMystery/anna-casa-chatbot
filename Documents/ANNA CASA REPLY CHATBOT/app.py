@@ -1009,15 +1009,14 @@ def receive_webhook():
                 _AUTOMATED_FRAGMENTS = (
                     "cảm ơn anh chị đã nhắn tin",
                     "cam on anh chi da nhan tin",
-                    "chuyên viên anna casa",
-                    "chuyen vien anna casa",
-                    "anna casa chuyên nội thất",
-                    "anna casa chuyen noi that",
+                    "chuyên viên anna casa sẽ phản hồi",
+                    "chuyen vien anna casa se phan hoi",
+                    "anna casa chuyên nội thất nhập khẩu",
+                    "anna casa chuyen noi that nhap khau",
                     "chúng tôi có thể giúp gì cho bạn",
                     "chung toi co the giup gi cho ban",
                     "chúng tôi có thể hỗ trợ gì cho bạn",
                     "chung toi co the ho tro gi cho ban",
-                    "xin chào,",   # "Xin chào, (tên)! Chúng tôi..."
                 )
                 if any(f in _et for f in _AUTOMATED_FRAGMENTS):
                     continue
