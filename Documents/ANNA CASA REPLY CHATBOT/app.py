@@ -595,6 +595,17 @@ def process_message(sender_id, text):
             bot_sending.discard(sender_id)
             return
 
+        # Inia collection trigger — rule cứng
+        _INIA_TRIGGERS = ["inia", "grandeco inia", "giấy dán tường inia", "giay dan tuong inia"]
+        if any(k in text.lower() for k in _INIA_TRIGGERS):
+            time.sleep(3)
+            if is_human_handling(sender_id): return
+            bot_sending.add(sender_id)
+            send_text(sender_id, f"Dạ bên em có collection Inia của Grandeco {pronoun} xem tại đây nha: https://annacasavn.com/giay-dan-tuong-grandeco-inia")
+            time.sleep(10)
+            bot_sending.discard(sender_id)
+            return
+
         # Wallpaper catalogue trigger — rule cứng, không cần Claude
         WP_TRIGGERS = ["catalogue giấy dán tường", "catalog giấy dán tường",
                        "catalogue giay dan tuong", "catalog giay dan tuong",
