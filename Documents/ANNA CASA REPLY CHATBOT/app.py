@@ -131,7 +131,7 @@ def log_appointment_to_sheet(psid: str):
 
 
 def is_human_handling(sender_id): return sender_id in human_mode
-def fetch_fb_conversation(sender_id: str, limit: int = 10) -> list:
+def fetch_fb_conversation(sender_id: str, limit: int = 8) -> list:
     """Fetch full conversation from Facebook API — includes automated + sales messages."""
     try:
         # Tìm conversation thread giữa page và user
