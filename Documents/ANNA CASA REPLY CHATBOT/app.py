@@ -19,6 +19,7 @@ app = Flask(__name__)
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 META_PAGE_TOKEN     = os.environ["META_PAGE_TOKEN"]
+META_PAGE_ID        = os.environ.get("META_PAGE_ID", "")
 META_VERIFY_TOKEN   = os.environ["META_VERIFY_TOKEN"]
 ANTHROPIC_API_KEY   = os.environ["ANTHROPIC_API_KEY"]
 GOOGLE_API_KEY      = os.environ["GOOGLE_API_KEY"]
@@ -130,6 +131,43 @@ def log_appointment_to_sheet(psid: str):
 
 
 def is_human_handling(sender_id): return sender_id in human_mode
+def fetch_fb_conversation(sender_id: str, limit: int = 10) -> list:
+    """Fetch full conversation from Facebook API — includes automated + sales messages."""
+    try:
+        # Tìm conversation thread giữa page và user
+        url = (f"https://graph.facebook.com/v18.0/me/conversations"
+               f"?fields=messages{{message,from,created_time}}"
+               f"&user_id={sender_id}&access_token={META_PAGE_TOKEN}&limit=1")
+        r = requests.get(url, timeout=8)
+        data = r.json()
+        threads = data.get("data", [])
+        if not threads:
+            return conversations.get(sender_id, [])
+
+        messages_raw = threads[0].get("messages", {}).get("data", [])
+        # Newest first → reverse để oldest first
+        messages_raw = list(reversed(messages_raw[-limit:]))
+
+        PAGE_ID = META_PAGE_ID
+        history = []
+        for m in messages_raw:
+            msg_text = m.get("message", "").strip()
+            if not msg_text:
+                continue
+            sender = m.get("from", {}).get("id", "")
+            role = "assistant" if sender == PAGE_ID else "user"
+            history.append({"role": role, "content": msg_text})
+
+        # Đảm bảo không bắt đầu bằng assistant (Claude yêu cầu user đầu tiên)
+        while history and history[0]["role"] == "assistant":
+            history.pop(0)
+
+        return history if history else conversations.get(sender_id, [])
+    except Exception as e:
+        print(f"fetch_fb_conversation error: {e}")
+        return conversations.get(sender_id, [])
+
+
 def get_history(sender_id): return conversations.get(sender_id, [])
 
 def save_message(sender_id, role, content):
@@ -724,7 +762,7 @@ def process_message(sender_id, text):
             system += f"\n\nĐây là tin nhắn ĐẦU TIÊN — LUÔN LUÔN reply, không bao giờ trả về [SKIP]. Bắt đầu bằng '{greeting}' rồi:\n- Nếu khách hỏi rõ về thảm hoặc giấy dán tường → tư vấn luôn\n- Nếu khách hỏi sản phẩm khác (sofa, đèn...) → reply escalate\n- Nếu chưa rõ nhu cầu → reply đúng 2 dòng: dòng 1 là câu chào '{greeting}', dòng 2 là 'Dạ {pronoun} cần tư vấn sản phẩm gì ạ, bên em có {product_list}'"
 
         save_message(sender_id, "user", text)
-        history = get_history(sender_id)
+        history = fetch_fb_conversation(sender_id)
 
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
@@ -920,7 +958,7 @@ def process_image(sender_id, image_url, caption=""):
             ]
         }
 
-        history = get_history(sender_id) + [vision_message]
+        history = fetch_fb_conversation(sender_id) + [vision_message]
 
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
