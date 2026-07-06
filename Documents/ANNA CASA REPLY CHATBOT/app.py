@@ -365,6 +365,10 @@ KHI KHÁCH MUỐN XEM TẤT CẢ SẢN PHẨM:
 - Gửi link website: thảm → https://annacasavn.com/tham, giấy dán tường → https://annacasavn.com/giay-dan-tuong
 - Ví dụ: "Dạ anh xem hết bộ sưu tập thảm tại đây nha: https://annacasavn.com/tham em tư vấn thêm khi anh thích mẫu nào"
 
+COLLECTION GIẤY DÁN TƯỜNG ĐẶC BIỆT:
+- Grandeco Inia: bộ sưu tập giấy dán tường cao cấp từ Bỉ, thiết kế tự nhiên → https://annacasavn.com/giay-dan-tuong-grandeco-inia
+- Khi khách hỏi về Inia hoặc Grandeco Inia → gửi link collection đó ngay
+
 VÍ DỤ GIỌNG VĂN ĐÚNG:
 Khách: "tư vấn thảm"
 Mai: "Dạ anh chị thích tone màu gì ạ, sáng hay tối?"
@@ -591,17 +595,6 @@ def process_message(sender_id, text):
             bot_sending.add(sender_id)
             send_text(sender_id, f"Dạ để em chuyển cho bộ phận phụ trách hỗ trợ {pronoun} ngay ạ.")
             notify_escalate(sender_id, sender_name, text)
-            time.sleep(10)
-            bot_sending.discard(sender_id)
-            return
-
-        # Inia collection trigger — rule cứng
-        _INIA_TRIGGERS = ["inia", "grandeco inia", "giấy dán tường inia", "giay dan tuong inia"]
-        if any(k in text.lower() for k in _INIA_TRIGGERS):
-            time.sleep(3)
-            if is_human_handling(sender_id): return
-            bot_sending.add(sender_id)
-            send_text(sender_id, f"Dạ bên em có collection Inia của Grandeco {pronoun} xem tại đây nha: https://annacasavn.com/giay-dan-tuong-grandeco-inia")
             time.sleep(10)
             bot_sending.discard(sender_id)
             return
