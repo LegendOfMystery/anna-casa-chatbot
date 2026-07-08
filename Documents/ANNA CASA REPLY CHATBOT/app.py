@@ -91,6 +91,43 @@ notification_feed = deque(maxlen=100)
 bot_enabled = True
 asked_zalo: set = set()  # Đã hỏi Zalo → dừng reply
 
+# ── DEBOUNCE: gom tin nhắn 30s rồi xử lý 1 lần ──────────────────────────────
+DEBOUNCE_DELAY = 30  # giây
+_pending_queue: dict[str, list] = {}   # psid -> [{"type": "text"|"image", "text": str, "url": str}]
+_pending_timers: dict[str, threading.Timer] = {}
+_pending_lock = threading.Lock()
+
+
+def _flush_pending(sender_id: str):
+    """Sau debounce delay — gom hết messages rồi process 1 lần."""
+    with _pending_lock:
+        items = _pending_queue.pop(sender_id, [])
+        _pending_timers.pop(sender_id, None)
+    if not items:
+        return
+    images = [i for i in items if i["type"] == "image"]
+    texts = [i["text"] for i in items if i.get("text", "").strip()]
+    combined_text = "\n".join(texts).strip()
+    if images:
+        image_url = images[0]["url"]
+        threading.Thread(target=process_image, args=(sender_id, image_url, combined_text), daemon=True).start()
+    elif combined_text:
+        threading.Thread(target=process_message, args=(sender_id, combined_text), daemon=True).start()
+
+
+def _enqueue(sender_id: str, msg: dict):
+    """Thêm message vào queue và reset timer 30s."""
+    with _pending_lock:
+        if sender_id not in _pending_queue:
+            _pending_queue[sender_id] = []
+        _pending_queue[sender_id].append(msg)
+        if sender_id in _pending_timers:
+            _pending_timers[sender_id].cancel()
+        t = threading.Timer(DEBOUNCE_DELAY, _flush_pending, args=(sender_id,))
+        t.daemon = True
+        t.start()
+        _pending_timers[sender_id] = t
+
 # ── LEAD TRACKING & APPOINTMENT ───────────────────────────────────────────────
 ref_store:        dict[str, str] = {}   # psid -> ref code từ ad
 invite_sent:      set = set()           # psid đã được mời ghé showroom
@@ -1147,30 +1184,18 @@ def receive_webhook():
                         has_image = True
                         image_url = att.get("payload", {}).get("url", "")
                         if image_url and not is_asking_similar(text):
-                            threading.Thread(
-                                target=process_image,
-                                args=(sender_id, image_url, text or ""),
-                                daemon=True
-                            ).start()
+                            _enqueue(sender_id, {"type": "image", "url": image_url, "text": text or ""})
                 if not has_image:
                     # Video, Reel, share — không xem được nội dung
                     _reel_ctx = f"{text}\n[Lưu ý: khách gửi kèm hình/video/Reel mà bot không xem được. Nếu khách hỏi về hình đó → nhờ khách gửi lại ảnh tĩnh để tư vấn chính xác hơn.]" if text else "[Khách gửi video/Reel/file — không xem được. Nhờ khách mô tả hoặc gửi ảnh tĩnh.]"
-                    threading.Thread(
-                        target=process_message,
-                        args=(sender_id, _reel_ctx),
-                        daemon=True
-                    ).start()
+                    _enqueue(sender_id, {"type": "text", "text": _reel_ctx})
                 continue
 
             # Xử lý text
             if not text:
                 continue
 
-            threading.Thread(
-                target=process_message,
-                args=(sender_id, text),
-                daemon=True
-            ).start()
+            _enqueue(sender_id, {"type": "text", "text": text})
 
     return jsonify({"status": "ok"}), 200
 
