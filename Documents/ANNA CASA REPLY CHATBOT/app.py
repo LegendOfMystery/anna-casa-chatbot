@@ -30,11 +30,43 @@ client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
 # ── IN-MEMORY STORE ───────────────────────────────────────────────────────────
 import time as _time
+import json as _json
 SERVER_START_TIME = _time.time()  # bỏ qua echoes trong 60s đầu sau restart
 processed_messages: set = set()
 _bot_sending_count: dict = {}  # psid -> int, reference-counted
 bot_sent_mids: set = set()     # message IDs sent by bot — echoes of these are always ignored
-human_mode: set = set()
+
+_HUMAN_MODE_FILE = Path(__file__).parent / "human_mode.json"
+
+def _load_human_mode() -> set:
+    try:
+        if _HUMAN_MODE_FILE.exists():
+            return set(_json.loads(_HUMAN_MODE_FILE.read_text()))
+    except Exception:
+        pass
+    return set()
+
+def _save_human_mode(s: set):
+    try:
+        _HUMAN_MODE_FILE.write_text(_json.dumps(list(s)))
+    except Exception as e:
+        print(f"human_mode save error: {e}")
+
+class _HumanModeSet:
+    def __init__(self):
+        self._data = _load_human_mode()
+    def add(self, sid):
+        self._data.add(sid)
+        _save_human_mode(self._data)
+    def discard(self, sid):
+        self._data.discard(sid)
+        _save_human_mode(self._data)
+    def __contains__(self, sid):
+        return sid in self._data
+    def __iter__(self):
+        return iter(self._data)
+
+human_mode = _HumanModeSet()
 
 class _BotSendingProxy:
     """Reference-counted replacement for bot_sending set to handle concurrent threads."""
@@ -591,6 +623,18 @@ def is_asking_similar(text: str) -> bool:
     text_lower = text.lower()
     return any(k in text_lower for k in SIMILAR_PATTERN_KEYWORDS)
 
+def is_lead_form(text: str) -> bool:
+    """Detect Facebook Lead Form auto-messages — không cần bot reply."""
+    t = text.lower()
+    lead_signals = [
+        "tôi đã điền mẫu", "toi da dien mau",
+        "i filled out a form", "i submitted a form",
+        "phone number:", "email:", "first name:", "last name:",
+        "tên dự án cần báo giá", "ten du an can bao gia",
+        "căn hộ của bạn có bao nhiêu", "can ho cua ban co bao nhieu",
+    ]
+    return sum(1 for s in lead_signals if s in t) >= 2
+
 def detect_gender(full_name: str) -> str:
     """Trả về 'anh', 'chị', hoặc 'bạn' nếu không xác định được."""
     if not full_name:
@@ -1078,6 +1122,10 @@ def receive_webhook():
                 continue
 
             if is_human_handling(sender_id):
+                continue
+
+            if text and is_lead_form(text):
+                print(f"[SKIP] Lead form message from {sender_id}")
                 continue
 
             if is_requesting_zalo(text):
