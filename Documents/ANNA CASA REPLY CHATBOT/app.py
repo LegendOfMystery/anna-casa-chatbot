@@ -767,7 +767,8 @@ def process_message(sender_id, text):
             cat = "giay_dan_tuong"
             user_category[sender_id] = cat
             user_pending_products.pop(sender_id, None)  # clear pending thảm nếu có
-        elif any(k in t for k in ["thảm", "tham", "carpet", "rug"]):
+        elif any(k in t for k in ["thảm", "tham", "carpet", "rug"]) or \
+                re.search(r'\b\d+\s*[x×]\s*\d+', t):  # kích thước kiểu 3x4, 2×3 → likely hỏi thảm
             if not cat or cat != "tham":
                 cat = "tham"
                 user_category[sender_id] = cat
@@ -1148,10 +1149,11 @@ def receive_webhook():
                                 daemon=True
                             ).start()
                 if not has_image:
-                    # Video, Reel, sticker, share — không phân tích được
+                    # Video, Reel, share — không xem được nội dung
+                    _reel_ctx = f"{text}\n[Lưu ý: khách gửi kèm hình/video/Reel mà bot không xem được. Nếu khách hỏi về hình đó → nhờ khách gửi lại ảnh tĩnh để tư vấn chính xác hơn.]" if text else "[Khách gửi video/Reel/file — không xem được. Nhờ khách mô tả hoặc gửi ảnh tĩnh.]"
                     threading.Thread(
                         target=process_message,
-                        args=(sender_id, text or "[Khách gửi video/Reel/file — không xem được nội dung. Hỏi khách muốn tư vấn sản phẩm gì hoặc nhờ gửi ảnh tĩnh.]"),
+                        args=(sender_id, _reel_ctx),
                         daemon=True
                     ).start()
                 continue
