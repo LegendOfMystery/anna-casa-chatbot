@@ -91,43 +91,6 @@ notification_feed = deque(maxlen=100)
 bot_enabled = True
 asked_zalo: set = set()  # Đã hỏi Zalo → dừng reply
 
-# ── DEBOUNCE: gom tin nhắn 30s rồi xử lý 1 lần ──────────────────────────────
-DEBOUNCE_DELAY = 30  # giây
-_pending_queue: dict[str, list] = {}   # psid -> [{"type": "text"|"image", "text": str, "url": str}]
-_pending_timers: dict[str, threading.Timer] = {}
-_pending_lock = threading.Lock()
-
-
-def _flush_pending(sender_id: str):
-    """Sau debounce delay — gom hết messages rồi process 1 lần."""
-    with _pending_lock:
-        items = _pending_queue.pop(sender_id, [])
-        _pending_timers.pop(sender_id, None)
-    if not items:
-        return
-    images = [i for i in items if i["type"] == "image"]
-    texts = [i["text"] for i in items if i.get("text", "").strip()]
-    combined_text = "\n".join(texts).strip()
-    if images:
-        image_url = images[0]["url"]
-        threading.Thread(target=process_image, args=(sender_id, image_url, combined_text), daemon=True).start()
-    elif combined_text:
-        threading.Thread(target=process_message, args=(sender_id, combined_text), daemon=True).start()
-
-
-def _enqueue(sender_id: str, msg: dict):
-    """Thêm message vào queue và reset timer 30s."""
-    with _pending_lock:
-        if sender_id not in _pending_queue:
-            _pending_queue[sender_id] = []
-        _pending_queue[sender_id].append(msg)
-        if sender_id in _pending_timers:
-            _pending_timers[sender_id].cancel()
-        t = threading.Timer(DEBOUNCE_DELAY, _flush_pending, args=(sender_id,))
-        t.daemon = True
-        t.start()
-        _pending_timers[sender_id] = t
-
 # ── LEAD TRACKING & APPOINTMENT ───────────────────────────────────────────────
 ref_store:        dict[str, str] = {}   # psid -> ref code từ ad
 invite_sent:      set = set()           # psid đã được mời ghé showroom
@@ -221,13 +184,10 @@ def fetch_fb_conversation(sender_id: str, limit: int = 8) -> list:
         history = []
         for m in messages_raw:
             msg_text = m.get("message", "").strip()
+            if not msg_text:
+                continue
             sender = m.get("from", {}).get("id", "")
             role = "assistant" if sender == PAGE_ID else "user"
-            if not msg_text:
-                # Attachment/image message — add placeholder so Claude knows
-                if role == "user":
-                    history.append({"role": "user", "content": "[Khách gửi hình/file đính kèm]"})
-                continue
             history.append({"role": role, "content": msg_text})
 
         # Đảm bảo không bắt đầu bằng assistant (Claude yêu cầu user đầu tiên)
@@ -807,13 +767,30 @@ def process_message(sender_id, text):
             cat = "giay_dan_tuong"
             user_category[sender_id] = cat
             user_pending_products.pop(sender_id, None)  # clear pending thảm nếu có
-        elif any(k in t for k in ["thảm", "tham", "carpet", "rug", "kích thước", "kich thuoc"]) or \
-                re.search(r'\b\d+\s*[xX×✕✗xX⨉]\s*\d+', t) or \
-                re.search(r'\b\d+\s*[^\w\s,;.]\s*\d+\b', t):  # kích thước kiểu 3x4, 2×3, 3✕4 → thảm
+        elif any(k in t for k in ["thảm", "tham", "carpet", "rug"]):
             if not cat or cat != "tham":
                 cat = "tham"
                 user_category[sender_id] = cat
                 user_pending_products.pop(sender_id, None)
+
+        # Tin đầu tiên + chưa rõ category + chỉ là greeting thuần → hardcode, không gọi Claude
+        _generic_greetings = {"hi", "hello", "chào", "chao", "hey", "alo", "ơi", "oi",
+                               "xin chào", "xin chao", "get started", "bắt đầu", "bat dau"}
+        _t_stripped = text.strip().lower().rstrip("!. ")
+        _is_generic = _t_stripped in _generic_greetings or len(_t_stripped) <= 5
+        if is_first and not cat and _is_generic:
+            greeted_users.add(sender_id)
+            name_part = f" {first_name}" if first_name else ""
+            line1 = f"Anna Casa xin chào {pronoun}{name_part}, em là Mai trợ lý AI tư vấn tại Anna Casa Vietnam."
+            line2 = f"Dạ {pronoun} cần tư vấn sản phẩm gì ạ, bên em có thảm, giấy dán tường, sofa, bàn cà phê, đèn trang trí, bàn ghế ăn, gói nội thất ạ"
+            time.sleep(5)
+            bot_sending.add(sender_id)
+            send_text(sender_id, line1)
+            time.sleep(1)
+            send_text(sender_id, line2)
+            time.sleep(10)
+            bot_sending.discard(sender_id)
+            return
 
         if cat:
             products = fetch_products_by_category(cat)
@@ -826,15 +803,7 @@ def process_message(sender_id, text):
         if is_first:
             greeting = f"Anna Casa xin chào {pronoun} {first_name}, em là Mai trợ lý AI tư vấn tại Anna Casa Vietnam." if first_name else f"Anna Casa xin chào {pronoun}, em là Mai trợ lý AI tư vấn tại Anna Casa Vietnam."
             product_list = "thảm, giấy dán tường, sofa, bàn cà phê, đèn trang trí, bàn ghế ăn, gói nội thất"
-            system += (
-                f"\n\nĐây là tin nhắn ĐẦU TIÊN của khách. LUÔN bắt đầu reply bằng '{greeting}', "
-                f"sau đó ĐỌC NỘI DUNG khách hỏi và trả lời thẳng vào đó — không hỏi lại nếu đã rõ:\n"
-                f"- Khách chào/hỏi chung chưa rõ → hỏi: 'Dạ {pronoun} cần tư vấn sản phẩm gì ạ, bên em có {product_list}'\n"
-                f"- Khách hỏi địa chỉ/showroom/giờ/hotline → trả lời ngay\n"
-                f"- Khách hỏi thảm/giấy dán tường → tư vấn luôn\n"
-                f"- Khách hỏi sản phẩm khác → [ESCALATE] + 'Dạ sản phẩm này em sẽ nhờ chuyên viên hỗ trợ {pronoun} thêm ạ'\n"
-                f"KHÔNG bao giờ trả về [SKIP] ở tin đầu tiên."
-            )
+            system += f"\n\nĐây là tin nhắn ĐẦU TIÊN — LUÔN LUÔN reply, không bao giờ trả về [SKIP]. Bắt đầu bằng '{greeting}' rồi:\n- Nếu khách hỏi rõ về thảm hoặc giấy dán tường → tư vấn luôn\n- Nếu khách hỏi sản phẩm khác (sofa, đèn...) → reply escalate\n- Nếu chưa rõ nhu cầu → reply đúng 2 dòng: dòng 1 là câu chào '{greeting}', dòng 2 là 'Dạ {pronoun} cần tư vấn sản phẩm gì ạ, bên em có {product_list}'"
 
         save_message(sender_id, "user", text)
         history = fetch_fb_conversation(sender_id)
@@ -1028,36 +997,27 @@ def process_image(sender_id, image_url, caption=""):
                 },
                 {
                     "type": "text",
-                    "text": f"Đây là ảnh khách gửi.{f' Khách nhắn kèm: \"{caption}\".' if caption else ''}\n\nQuy tắc phân tích:\n1. Bỏ qua mọi UI overlay (nút play, thanh điều hướng, giao diện app) nếu có — đây là ảnh tĩnh/screenshot.\n2. Nếu thấy thảm trong ảnh hoặc khách hỏi về thảm: MÔ TẢ màu sắc, họa tiết, chất liệu thảm trong ảnh → sau đó TÌM sản phẩm gần nhất trong data → GỢI Ý ngay (tên + link) — KHÔNG hỏi lại khách. Nếu không tìm được mẫu giống hệt, gợi ý mẫu gần màu/họa tiết nhất.\n3. Nếu khách hỏi giá/kích thước → trả lời theo thông tin sản phẩm + đề xuất liên hệ để báo giá chính xác.\n4. Nếu ảnh chỉ có đồ nội thất khác (sofa, bàn, đèn...) không có thảm → [ESCALATE] + 'Dạ sản phẩm này em sẽ nhờ chuyên viên hỗ trợ anh chị thêm ạ'."
+                    "text": f"Khách gửi hình này{f' kèm tin nhắn: \"{caption}\"' if caption else ''}. Nếu khách hỏi về sản phẩm không phải thảm (sofa, bàn, đèn...) thì reply [ESCALATE] + 'Dạ sản phẩm này em sẽ nhờ chuyên viên hỗ trợ anh chị thêm ạ'. Nếu khách hỏi về thảm hoặc không rõ → phân tích màu sắc và họa tiết trong ảnh, tìm mẫu thảm tương tự và gợi ý."
                 }
             ]
         }
 
-        # Không dùng conversation history cũ — ảnh là context chính, history wallpaper cũ sẽ gây nhầm
-        history = [vision_message]
+        history = fetch_fb_conversation(sender_id) + [vision_message]
 
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=500,
+            max_tokens=150,
             system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
             messages=history,
             extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"}
         )
 
         reply = response.content[0].text
-        needs_esc_img = "[ESCALATE]" in reply
         clean_reply = reply.replace("[ESCALATE]", "").replace("[SKIP]", "").strip()
 
-        # Nếu Claude không escalate → ảnh liên quan đến thảm → set category
-        if not needs_esc_img:
-            user_category[sender_id] = "tham"
-
         # Lưu vào history dạng text
-        save_message(sender_id, "user", "[Khách gửi hình thảm]" if not needs_esc_img else "[Khách gửi hình]")
+        save_message(sender_id, "user", "[Khách gửi hình]")
         save_message(sender_id, "assistant", clean_reply)
-
-        if needs_esc_img:
-            notify_escalate(sender_id, get_sender_name(sender_id), "[Gửi hình sản phẩm khác]")
 
         time.sleep(3)
         if is_human_handling(sender_id): return
@@ -1185,18 +1145,29 @@ def receive_webhook():
                         has_image = True
                         image_url = att.get("payload", {}).get("url", "")
                         if image_url and not is_asking_similar(text):
-                            _enqueue(sender_id, {"type": "image", "url": image_url, "text": text or ""})
+                            threading.Thread(
+                                target=process_image,
+                                args=(sender_id, image_url, text or ""),
+                                daemon=True
+                            ).start()
                 if not has_image:
-                    # Video, Reel, share — không xem được nội dung
-                    _reel_ctx = f"{text}\n[Lưu ý: khách gửi kèm hình/video/Reel mà bot không xem được. Nếu khách hỏi về hình đó → nhờ khách gửi lại ảnh tĩnh để tư vấn chính xác hơn.]" if text else "[Khách gửi video/Reel/file — không xem được. Nhờ khách mô tả hoặc gửi ảnh tĩnh.]"
-                    _enqueue(sender_id, {"type": "text", "text": _reel_ctx})
+                    # Video, Reel, sticker, share — không phân tích được
+                    threading.Thread(
+                        target=process_message,
+                        args=(sender_id, text or "[Khách gửi video/Reel/file — không xem được nội dung. Hỏi khách muốn tư vấn sản phẩm gì hoặc nhờ gửi ảnh tĩnh.]"),
+                        daemon=True
+                    ).start()
                 continue
 
             # Xử lý text
             if not text:
                 continue
 
-            _enqueue(sender_id, {"type": "text", "text": text})
+            threading.Thread(
+                target=process_message,
+                args=(sender_id, text),
+                daemon=True
+            ).start()
 
     return jsonify({"status": "ok"}), 200
 
