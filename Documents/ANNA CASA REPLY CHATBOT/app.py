@@ -184,10 +184,13 @@ def fetch_fb_conversation(sender_id: str, limit: int = 8) -> list:
         history = []
         for m in messages_raw:
             msg_text = m.get("message", "").strip()
-            if not msg_text:
-                continue
             sender = m.get("from", {}).get("id", "")
             role = "assistant" if sender == PAGE_ID else "user"
+            if not msg_text:
+                # Attachment/image message — add placeholder so Claude knows
+                if role == "user":
+                    history.append({"role": "user", "content": "[Khách gửi hình/file đính kèm]"})
+                continue
             history.append({"role": role, "content": msg_text})
 
         # Đảm bảo không bắt đầu bằng assistant (Claude yêu cầu user đầu tiên)
@@ -987,7 +990,7 @@ def process_image(sender_id, image_url, caption=""):
                 },
                 {
                     "type": "text",
-                    "text": f"Đây là ảnh tĩnh khách gửi (có thể là screenshot từ Reels/video — bỏ qua mọi UI overlay như nút play, thanh điều hướng, giao diện app). Tập trung phân tích NỘI DUNG thật sự trong ảnh: phòng ốc, sản phẩm nội thất, màu sắc, họa tiết.{f' Khách nhắn kèm: \"{caption}\".' if caption else ''} Nếu khách hỏi về sản phẩm không phải thảm (sofa, bàn, đèn...) → [ESCALATE] + 'Dạ sản phẩm này em sẽ nhờ chuyên viên hỗ trợ anh chị thêm ạ'. Nếu thấy thảm hoặc khách hỏi về thảm → phân tích màu sắc và họa tiết, tìm mẫu tương tự và gợi ý."
+                    "text": f"Đây là ảnh khách gửi.{f' Khách nhắn kèm: \"{caption}\".' if caption else ''}\n\nQuy tắc phân tích:\n1. Bỏ qua mọi UI overlay (nút play, thanh điều hướng, giao diện app) nếu có — đây là ảnh tĩnh/screenshot.\n2. Nếu thấy thảm trong ảnh hoặc khách hỏi về thảm: MÔ TẢ màu sắc, họa tiết, chất liệu thảm trong ảnh → sau đó TÌM sản phẩm gần nhất trong data → GỢI Ý ngay (tên + link) — KHÔNG hỏi lại khách. Nếu không tìm được mẫu giống hệt, gợi ý mẫu gần màu/họa tiết nhất.\n3. Nếu khách hỏi giá/kích thước → trả lời theo thông tin sản phẩm + đề xuất liên hệ để báo giá chính xác.\n4. Nếu ảnh chỉ có đồ nội thất khác (sofa, bàn, đèn...) không có thảm → [ESCALATE] + 'Dạ sản phẩm này em sẽ nhờ chuyên viên hỗ trợ anh chị thêm ạ'."
                 }
             ]
         }
@@ -996,7 +999,7 @@ def process_image(sender_id, image_url, caption=""):
 
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=150,
+            max_tokens=500,
             system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
             messages=history,
             extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"}
