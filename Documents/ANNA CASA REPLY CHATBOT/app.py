@@ -1152,7 +1152,7 @@ def receive_webhook():
                         time.sleep(3)
                         if is_human_handling(sid): return
                         bot_sending.add(sid)
-                        send_text(sid, f"Dạ {first} ơi, bên em là chatbot AI nên chưa thể xem hình được ạ 🙏 Nhân viên tư vấn sẽ hỗ trợ {pronoun} sớm nhất có thể nhé!")
+                        send_text(sid, f"Dạ {first} ơi, bên em là chatbot AI nên chưa thể xem hình được ạ. Nhân viên tư vấn sẽ hỗ trợ {pronoun} sớm nhất có thể nhé!")
                         bot_sending.discard(sid)
                     threading.Thread(target=_notify_image, args=(sender_id,), daemon=True).start()
                 else:
