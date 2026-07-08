@@ -986,7 +986,7 @@ def process_image(sender_id, image_url, caption=""):
                 },
                 {
                     "type": "text",
-                    "text": f"Khách gửi hình này{f' kèm tin nhắn: \"{caption}\"' if caption else ''}. Nếu khách hỏi về sản phẩm không phải thảm (sofa, bàn, đèn...) thì reply [ESCALATE] + 'Dạ sản phẩm này em sẽ nhờ chuyên viên hỗ trợ anh chị thêm ạ'. Nếu khách hỏi về thảm hoặc không rõ → phân tích màu sắc và họa tiết trong ảnh, tìm mẫu thảm tương tự và gợi ý."
+                    "text": f"Đây là ảnh tĩnh khách gửi (có thể là screenshot từ Reels/video — bỏ qua mọi UI overlay như nút play, thanh điều hướng, giao diện app). Tập trung phân tích NỘI DUNG thật sự trong ảnh: phòng ốc, sản phẩm nội thất, màu sắc, họa tiết.{f' Khách nhắn kèm: \"{caption}\".' if caption else ''} Nếu khách hỏi về sản phẩm không phải thảm (sofa, bàn, đèn...) → [ESCALATE] + 'Dạ sản phẩm này em sẽ nhờ chuyên viên hỗ trợ anh chị thêm ạ'. Nếu thấy thảm hoặc khách hỏi về thảm → phân tích màu sắc và họa tiết, tìm mẫu tương tự và gợi ý."
                 }
             ]
         }
