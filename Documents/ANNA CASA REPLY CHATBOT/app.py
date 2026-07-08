@@ -1002,11 +1002,19 @@ def process_image(sender_id, image_url, caption=""):
         )
 
         reply = response.content[0].text
+        needs_esc_img = "[ESCALATE]" in reply
         clean_reply = reply.replace("[ESCALATE]", "").replace("[SKIP]", "").strip()
 
+        # Nếu Claude không escalate → ảnh liên quan đến thảm → set category
+        if not needs_esc_img:
+            user_category[sender_id] = "tham"
+
         # Lưu vào history dạng text
-        save_message(sender_id, "user", "[Khách gửi hình]")
+        save_message(sender_id, "user", "[Khách gửi hình thảm]" if not needs_esc_img else "[Khách gửi hình]")
         save_message(sender_id, "assistant", clean_reply)
+
+        if needs_esc_img:
+            notify_escalate(sender_id, get_sender_name(sender_id), "[Gửi hình sản phẩm khác]")
 
         time.sleep(3)
         if is_human_handling(sender_id): return
