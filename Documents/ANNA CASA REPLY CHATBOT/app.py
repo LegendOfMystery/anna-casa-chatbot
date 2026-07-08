@@ -773,25 +773,6 @@ def process_message(sender_id, text):
                 user_category[sender_id] = cat
                 user_pending_products.pop(sender_id, None)
 
-        # Tin đầu tiên + chưa rõ category + chỉ là greeting thuần → hardcode, không gọi Claude
-        _generic_greetings = {"hi", "hello", "chào", "chao", "hey", "alo", "ơi", "oi",
-                               "xin chào", "xin chao", "get started", "bắt đầu", "bat dau"}
-        _t_stripped = text.strip().lower().rstrip("!. ")
-        _is_generic = _t_stripped in _generic_greetings or len(_t_stripped) <= 5
-        if is_first and not cat and _is_generic:
-            greeted_users.add(sender_id)
-            name_part = f" {first_name}" if first_name else ""
-            line1 = f"Anna Casa xin chào {pronoun}{name_part}, em là Mai trợ lý AI tư vấn tại Anna Casa Vietnam."
-            line2 = f"Dạ {pronoun} cần tư vấn sản phẩm gì ạ, bên em có thảm, giấy dán tường, sofa, bàn cà phê, đèn trang trí, bàn ghế ăn, gói nội thất ạ"
-            time.sleep(5)
-            bot_sending.add(sender_id)
-            send_text(sender_id, line1)
-            time.sleep(1)
-            send_text(sender_id, line2)
-            time.sleep(10)
-            bot_sending.discard(sender_id)
-            return
-
         if cat:
             products = fetch_products_by_category(cat)
             product_data = format_products_for_claude(products, cat)
@@ -803,7 +784,15 @@ def process_message(sender_id, text):
         if is_first:
             greeting = f"Anna Casa xin chào {pronoun} {first_name}, em là Mai trợ lý AI tư vấn tại Anna Casa Vietnam." if first_name else f"Anna Casa xin chào {pronoun}, em là Mai trợ lý AI tư vấn tại Anna Casa Vietnam."
             product_list = "thảm, giấy dán tường, sofa, bàn cà phê, đèn trang trí, bàn ghế ăn, gói nội thất"
-            system += f"\n\nĐây là tin nhắn ĐẦU TIÊN — LUÔN LUÔN reply, không bao giờ trả về [SKIP]. Bắt đầu bằng '{greeting}' rồi trả lời thẳng vào nội dung khách hỏi:\n- Khách hỏi địa chỉ, showroom, giờ mở cửa, hotline → trả lời ngay từ thông tin showroom\n- Khách hỏi rõ về thảm hoặc giấy dán tường → tư vấn luôn\n- Khách hỏi sản phẩm khác (sofa, đèn, bàn...) → reply escalate\n- Chỉ khi THỰC SỰ chưa rõ khách hỏi gì → reply 2 dòng: dòng 1 câu chào, dòng 2 'Dạ {pronoun} cần tư vấn sản phẩm gì ạ, bên em có {product_list}'"
+            system += (
+                f"\n\nĐây là tin nhắn ĐẦU TIÊN của khách. LUÔN bắt đầu reply bằng '{greeting}', "
+                f"sau đó ĐỌC NỘI DUNG khách hỏi và trả lời thẳng vào đó — không hỏi lại nếu đã rõ:\n"
+                f"- Khách chào/hỏi chung chưa rõ → hỏi: 'Dạ {pronoun} cần tư vấn sản phẩm gì ạ, bên em có {product_list}'\n"
+                f"- Khách hỏi địa chỉ/showroom/giờ/hotline → trả lời ngay\n"
+                f"- Khách hỏi thảm/giấy dán tường → tư vấn luôn\n"
+                f"- Khách hỏi sản phẩm khác → [ESCALATE] + 'Dạ sản phẩm này em sẽ nhờ chuyên viên hỗ trợ {pronoun} thêm ạ'\n"
+                f"KHÔNG bao giờ trả về [SKIP] ở tin đầu tiên."
+            )
 
         save_message(sender_id, "user", text)
         history = fetch_fb_conversation(sender_id)
