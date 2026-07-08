@@ -632,6 +632,9 @@ def is_lead_form(text: str) -> bool:
         "phone number:", "email:", "first name:", "last name:",
         "tên dự án cần báo giá", "ten du an can bao gia",
         "căn hộ của bạn có bao nhiêu", "can ho cua ban co bao nhieu",
+        "số điện thoại:", "họ và tên:", "ho va ten:",
+        "diện tích:", "dien tich:", "địa chỉ dự án", "dia chi du an",
+        "ngân sách:", "ngan sach:", "thời gian thi công", "thoi gian thi cong",
     ]
     return sum(1 for s in lead_signals if s in t) >= 2
 
@@ -1139,24 +1142,22 @@ def receive_webhook():
 
             # Xử lý ảnh / video / share
             if attachments:
-                has_image = False
-                for att in attachments:
-                    if att.get("type") == "image":
-                        has_image = True
-                        image_url = att.get("payload", {}).get("url", "")
-                        if image_url and not is_asking_similar(text):
-                            threading.Thread(
-                                target=process_image,
-                                args=(sender_id, image_url, text or ""),
-                                daemon=True
-                            ).start()
-                if not has_image:
-                    # Video, Reel, sticker, share — không phân tích được
-                    threading.Thread(
-                        target=process_message,
-                        args=(sender_id, text or "[Khách gửi video/Reel/file — không xem được nội dung. Hỏi khách muốn tư vấn sản phẩm gì hoặc nhờ gửi ảnh tĩnh.]"),
-                        daemon=True
-                    ).start()
+                has_image = any(att.get("type") == "image" for att in attachments)
+                if has_image:
+                    # Bot không đọc ảnh — thông báo và để nhân viên hỗ trợ
+                    def _notify_image(sid):
+                        name = get_sender_name(sid)
+                        first = (name.split()[-1] if name else "") or "bạn"
+                        pronoun = detect_gender(name)
+                        time.sleep(3)
+                        if is_human_handling(sid): return
+                        bot_sending.add(sid)
+                        send_text(sid, f"Dạ {first} ơi, bên em là chatbot AI nên chưa thể xem hình được ạ 🙏 Nhân viên tư vấn sẽ hỗ trợ {pronoun} sớm nhất có thể nhé!")
+                        bot_sending.discard(sid)
+                    threading.Thread(target=_notify_image, args=(sender_id,), daemon=True).start()
+                else:
+                    # Video, Reel, sticker, share — bỏ qua im lặng
+                    pass
                 continue
 
             # Xử lý text
