@@ -770,8 +770,9 @@ def process_message(sender_id, text):
             cat = "giay_dan_tuong"
             user_category[sender_id] = cat
             user_pending_products.pop(sender_id, None)  # clear pending thảm nếu có
-        elif any(k in t for k in ["thảm", "tham", "carpet", "rug"]) or \
-                re.search(r'\b\d+\s*[x×]\s*\d+', t):  # kích thước kiểu 3x4, 2×3 → likely hỏi thảm
+        elif any(k in t for k in ["thảm", "tham", "carpet", "rug", "kích thước", "kich thuoc"]) or \
+                re.search(r'\b\d+\s*[xX×✕✗xX⨉]\s*\d+', t) or \
+                re.search(r'\b\d+\s*[^\w\s,;.]\s*\d+\b', t):  # kích thước kiểu 3x4, 2×3, 3✕4 → thảm
             if not cat or cat != "tham":
                 cat = "tham"
                 user_category[sender_id] = cat
