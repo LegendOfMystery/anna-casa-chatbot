@@ -803,7 +803,7 @@ def process_message(sender_id, text):
         if is_first:
             greeting = f"Anna Casa xin chào {pronoun} {first_name}, em là Mai trợ lý AI tư vấn tại Anna Casa Vietnam." if first_name else f"Anna Casa xin chào {pronoun}, em là Mai trợ lý AI tư vấn tại Anna Casa Vietnam."
             product_list = "thảm, giấy dán tường, sofa, bàn cà phê, đèn trang trí, bàn ghế ăn, gói nội thất"
-            system += f"\n\nĐây là tin nhắn ĐẦU TIÊN — LUÔN LUÔN reply, không bao giờ trả về [SKIP]. Bắt đầu bằng '{greeting}' rồi:\n- Nếu khách hỏi rõ về thảm hoặc giấy dán tường → tư vấn luôn\n- Nếu khách hỏi sản phẩm khác (sofa, đèn...) → reply escalate\n- Nếu chưa rõ nhu cầu → reply đúng 2 dòng: dòng 1 là câu chào '{greeting}', dòng 2 là 'Dạ {pronoun} cần tư vấn sản phẩm gì ạ, bên em có {product_list}'"
+            system += f"\n\nĐây là tin nhắn ĐẦU TIÊN — LUÔN LUÔN reply, không bao giờ trả về [SKIP]. Bắt đầu bằng '{greeting}' rồi trả lời thẳng vào nội dung khách hỏi:\n- Khách hỏi địa chỉ, showroom, giờ mở cửa, hotline → trả lời ngay từ thông tin showroom\n- Khách hỏi rõ về thảm hoặc giấy dán tường → tư vấn luôn\n- Khách hỏi sản phẩm khác (sofa, đèn, bàn...) → reply escalate\n- Chỉ khi THỰC SỰ chưa rõ khách hỏi gì → reply 2 dòng: dòng 1 câu chào, dòng 2 'Dạ {pronoun} cần tư vấn sản phẩm gì ạ, bên em có {product_list}'"
 
         save_message(sender_id, "user", text)
         history = fetch_fb_conversation(sender_id)
