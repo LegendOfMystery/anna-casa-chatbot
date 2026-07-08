@@ -1033,7 +1033,8 @@ def process_image(sender_id, image_url, caption=""):
             ]
         }
 
-        history = fetch_fb_conversation(sender_id) + [vision_message]
+        # Không dùng conversation history cũ — ảnh là context chính, history wallpaper cũ sẽ gây nhầm
+        history = [vision_message]
 
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
