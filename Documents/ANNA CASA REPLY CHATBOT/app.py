@@ -1069,6 +1069,9 @@ def receive_webhook():
     if not data:
         return jsonify({"status": "no data"}), 200
 
+    import json as _dbgjson
+    print(f"[RAW] {_dbgjson.dumps(data)[:800]}")
+
     for entry in data.get("entry", []):
         for event in entry.get("messaging", []):
             sender_id  = event.get("sender", {}).get("id")
