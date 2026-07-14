@@ -1049,8 +1049,25 @@ def process_image(sender_id, image_url, caption=""):
             send_text(sender_id, "Dạ em không xem được hình, anh chị gửi lại thử nha.")
             return
 
-        # Dùng category đã biết từ context; nếu chưa biết thì mặc định thảm
-        cat = user_category.get(sender_id) or "tham"
+        # Dùng category đã biết; nếu chưa biết thì auto-detect từ ảnh
+        cat = user_category.get(sender_id)
+        if not cat:
+            try:
+                detect_resp = client.messages.create(
+                    model="claude-sonnet-4-6",
+                    max_tokens=10,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {"type": "image", "source": {"type": "base64", "media_type": img_media_type, "data": img_b64}},
+                            {"type": "text", "text": "Ảnh này là thảm trải sàn hay giấy dán tường? Chỉ trả lời: 'tham' hoặc 'giay_dan_tuong'"}
+                        ]
+                    }]
+                )
+                detected = detect_resp.content[0].text.strip().lower()
+                cat = "giay_dan_tuong" if "giay" in detected else "tham"
+            except Exception:
+                cat = "tham"
         user_category[sender_id] = cat
 
         products = fetch_products_by_category(cat)
