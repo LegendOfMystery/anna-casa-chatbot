@@ -972,6 +972,11 @@ def process_image(sender_id, image_url, caption=""):
             "time": int(time.time())
         })
 
+        print(f"[IMG] start sid={sender_id} human={is_human_handling(sender_id)}")
+        if is_human_handling(sender_id):
+            print(f"[IMG] skip — human mode")
+            return
+
         # Tin đầu tiên với ảnh — chào trước
         is_first = sender_id not in greeted_users
         if is_first:
