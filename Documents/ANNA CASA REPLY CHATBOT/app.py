@@ -996,7 +996,7 @@ def process_image(sender_id, image_url, caption=""):
             send_text(sender_id, "Dạ em không xem được hình, anh chị gửi lại thử nha.")
             return
 
-        products = fetch_rug_products()
+        products = fetch_products_by_category("tham")
         product_data = format_products_for_claude(products)
         system = SYSTEM_BASE.replace("{product_data}", product_data)
 
