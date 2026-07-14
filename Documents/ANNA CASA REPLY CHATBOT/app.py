@@ -190,9 +190,11 @@ def fetch_fb_conversation(sender_id: str, limit: int = 8) -> list:
             role = "assistant" if sender == PAGE_ID else "user"
             history.append({"role": role, "content": msg_text})
 
-        # Đảm bảo không bắt đầu bằng assistant (Claude yêu cầu user đầu tiên)
+        # Đảm bảo không bắt đầu bằng assistant và không kết thúc bằng assistant
         while history and history[0]["role"] == "assistant":
             history.pop(0)
+        while history and history[-1]["role"] == "assistant":
+            history.pop()
 
         return history if history else conversations.get(sender_id, [])
     except Exception as e:
@@ -990,7 +992,7 @@ def process_image(sender_id, image_url, caption=""):
 
         products = fetch_rug_products()
         product_data = format_products_for_claude(products)
-        system = SYSTEM_BASE.format(product_data=product_data)
+        system = SYSTEM_BASE.replace("{product_data}", product_data)
 
         # Gọi Claude với ảnh
         vision_message = {
