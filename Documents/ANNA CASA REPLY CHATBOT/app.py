@@ -853,15 +853,23 @@ def process_message(sender_id, text):
             system = SYSTEM_BASE.format(product_data=product_data) if cat else SYSTEM_BASE.format(product_data="(Chưa rõ khách hỏi sản phẩm gì — hỏi khách trước khi tư vấn)")
             system += f"\n\nGọi khách là '{pronoun}' (không dùng 'anh chị' nếu đã biết giới tính)."
 
-        # Nếu khách đề cập tên sản phẩm cụ thể → inject kết quả tìm kiếm vào system (phải sau mọi rebuild)
+        # Nếu khách đề cập tên sản phẩm cụ thể → reply thẳng, bỏ qua Claude
         if cat:
             name_matches = find_products_by_name_in_text(text, cat)
             if name_matches:
-                lines = "\n".join(f"- {p['name']}: {p['price']} → {p['url']}" for p in name_matches[:3])
-                system += (
-                    f"\n\nKhách đang hỏi về sản phẩm theo tên. Kết quả tìm kiếm:\n{lines}\n"
-                    "→ Xác nhận có sản phẩm này và gửi link ngay. KHÔNG hỏi màu. KHÔNG yêu cầu ảnh."
-                )
+                if len(name_matches) == 1:
+                    p = name_matches[0]
+                    direct_reply = f"Dạ bên em có {p['name']} giá {p['price']} {pronoun} xem tại:\n{p['url']}\nAnh cần size bao nhiêu ạ?"
+                else:
+                    lines = "\n".join(f"Mẫu {i+1}: {p['name']} {p['url']}" for i, p in enumerate(name_matches[:3]))
+                    direct_reply = f"Dạ bên em có các mẫu:\n{lines}\nAnh cần size bao nhiêu ạ?"
+                save_message(sender_id, "assistant", direct_reply)
+                time.sleep(3)
+                bot_sending.add(sender_id)
+                send_text(sender_id, direct_reply)
+                time.sleep(10)
+                bot_sending.discard(sender_id)
+                return
 
         response = client.messages.create(
             model="claude-sonnet-4-6",
