@@ -996,6 +996,9 @@ def process_image(sender_id, image_url, caption=""):
             send_text(sender_id, "Dạ em không xem được hình, anh chị gửi lại thử nha.")
             return
 
+        # Set category so follow-up text messages load rug products
+        user_category[sender_id] = "tham"
+
         products = fetch_products_by_category("tham")
         product_data = format_products_for_claude(products)
         system = SYSTEM_BASE.replace("{product_data}", product_data)
@@ -1018,9 +1021,9 @@ def process_image(sender_id, image_url, caption=""):
                         f"Khách gửi ảnh này{f' kèm tin nhắn: \"{caption}\"' if caption else ''}.\n\n"
                         "Lưu ý: ảnh có thể là screenshot chụp màn hình từ Reels/video — bỏ qua mọi UI overlay "
                         "(nút play, thanh progress, icon app, chữ caption video) và chỉ phân tích NỘI DUNG thật trong ảnh.\n\n"
+                        "QUAN TRỌNG — KHÔNG BAO GIỜ hỏi lại khách về màu sắc, kích thước, hay tone màu khi thấy thảm trong ảnh.\n\n"
                         "Quy tắc:\n"
-                        "- Thấy thảm trong ảnh → mô tả màu sắc, họa tiết, chất liệu → gợi ý sản phẩm gần nhất (tên + link) — KHÔNG hỏi lại khách\n"
-                        "- Khách hỏi giá/kích thước → trả lời theo data sản phẩm\n"
+                        "- Thấy thảm trong ảnh → ngay lập tức mô tả màu sắc, họa tiết, chất liệu nhìn thấy → gợi ý 2-3 sản phẩm gần nhất (tên + link) → hỏi size\n"
                         "- Ảnh có đồ nội thất khác (sofa, bàn, đèn) không có thảm → [ESCALATE] + 'Dạ sản phẩm này em sẽ nhờ chuyên viên hỗ trợ anh chị thêm ạ'"
                     )
                 }
@@ -1042,8 +1045,8 @@ def process_image(sender_id, image_url, caption=""):
         reply = response.content[0].text
         clean_reply = reply.replace("[ESCALATE]", "").replace("[SKIP]", "").strip()
 
-        # Lưu vào history dạng text
-        save_message(sender_id, "user", "[Khách gửi hình]")
+        # Lưu vào history dạng text — ghi rõ "hình thảm" để Claude hiểu context khi user follow-up
+        save_message(sender_id, "user", f"[Khách gửi hình thảm{f' kèm: {caption}' if caption else ''}]")
         save_message(sender_id, "assistant", clean_reply)
 
         time.sleep(3)
