@@ -812,7 +812,7 @@ def process_message(sender_id, text):
         history = fetch_fb_conversation(sender_id)
 
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-sonnet-4-6",
             max_tokens=600,
             system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
             messages=history,
@@ -1008,7 +1008,7 @@ def process_image(sender_id, image_url, caption=""):
         history = fetch_fb_conversation(sender_id) + [vision_message]
 
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-sonnet-4-6",
             max_tokens=150,
             system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
             messages=history,
