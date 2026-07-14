@@ -530,16 +530,22 @@ def get_sender_name(sender_id):
         return ""
 
 
-def download_image_as_base64(url: str) -> str | None:
-    """Download ảnh từ Facebook và convert sang base64."""
+def download_image_as_base64(url: str) -> tuple[str, str] | tuple[None, None]:
+    """Download ảnh từ Facebook và convert sang base64. Returns (b64, media_type)."""
     try:
-        # Facebook yêu cầu access token để download ảnh
         res = requests.get(url, headers={"Authorization": f"Bearer {META_PAGE_TOKEN}"}, timeout=15)
         if res.status_code == 200:
-            return base64.standard_b64encode(res.content).decode("utf-8")
+            ct = res.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
+            if ct not in ("image/jpeg", "image/png", "image/gif", "image/webp"):
+                ct = "image/jpeg"
+            b64 = base64.standard_b64encode(res.content).decode("utf-8")
+            print(f"download_image OK: {len(res.content)} bytes, {ct}")
+            return b64, ct
+        else:
+            print(f"download_image failed: HTTP {res.status_code}")
     except Exception as e:
         print(f"download_image failed: {e}")
-    return None
+    return None, None
 
 
 # ── ESCALATE ──────────────────────────────────────────────────────────────────
@@ -977,7 +983,7 @@ def process_image(sender_id, image_url, caption=""):
             bot_sending.discard(sender_id)
 
         # Download ảnh
-        img_b64 = download_image_as_base64(image_url)
+        img_b64, img_media_type = download_image_as_base64(image_url)
         if not img_b64:
             send_text(sender_id, "Dạ em không xem được hình, anh chị gửi lại thử nha.")
             return
@@ -994,7 +1000,7 @@ def process_image(sender_id, image_url, caption=""):
                     "type": "image",
                     "source": {
                         "type": "base64",
-                        "media_type": "image/jpeg",
+                        "media_type": img_media_type,
                         "data": img_b64
                     }
                 },
@@ -1014,8 +1020,8 @@ def process_image(sender_id, image_url, caption=""):
         }
 
         # Chỉ dùng lịch sử gần nhất, không để wallpaper context cũ override vision
-        recent_history = fetch_fb_conversation(sender_id)[-4:] if fetch_fb_conversation(sender_id) else []
-        history = recent_history + [vision_message]
+        _fb_hist = fetch_fb_conversation(sender_id)
+        history = (_fb_hist[-4:] if _fb_hist else []) + [vision_message]
 
         response = client.messages.create(
             model="claude-sonnet-4-6",
