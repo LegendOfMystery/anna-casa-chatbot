@@ -1050,8 +1050,8 @@ def process_image(sender_id, image_url, caption=""):
             return
 
         # Dùng category đã biết; nếu chưa biết thì auto-detect từ ảnh
-        cat = user_category.get(sender_id)
-        if not cat:
+        existing_cat = user_category.get(sender_id)
+        if not existing_cat:
             try:
                 detect_resp = client.messages.create(
                     model="claude-sonnet-4-6",
@@ -1068,7 +1068,11 @@ def process_image(sender_id, image_url, caption=""):
                 cat = "giay_dan_tuong" if "giay" in detected else "tham"
             except Exception:
                 cat = "tham"
+        else:
+            cat = existing_cat
         user_category[sender_id] = cat
+        # Nếu category mới được auto-detect (không có sẵn), bỏ history để tránh bias
+        fresh_start = not existing_cat
 
         products = fetch_products_by_category(cat)
         product_data = format_products_for_claude(products)
@@ -1112,9 +1116,12 @@ def process_image(sender_id, image_url, caption=""):
             ]
         }
 
-        # Chỉ dùng lịch sử gần nhất, không để wallpaper context cũ override vision
-        _fb_hist = fetch_fb_conversation(sender_id)
-        history = (_fb_hist[-4:] if _fb_hist else []) + [vision_message]
+        # Nếu category vừa auto-detect (fresh_start), bỏ history để tránh bias từ cuộc hội thoại cũ
+        if fresh_start:
+            history = [vision_message]
+        else:
+            _fb_hist = fetch_fb_conversation(sender_id)
+            history = (_fb_hist[-4:] if _fb_hist else []) + [vision_message]
 
         response = client.messages.create(
             model="claude-sonnet-4-6",
