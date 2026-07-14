@@ -175,7 +175,13 @@ def find_products_by_name_in_text(text: str, category: str) -> list:
             name_lower = p.get("name", "").lower()
             # Lấy từng "word token" trong tên sản phẩm (>= 3 ký tự, không phải số đơn thuần)
             tokens = [w for w in name_lower.split() if len(w) >= 3 and not w.replace("x","").isdigit()]
-            if any(tok in text_lower for tok in tokens if tok not in ("thảm","tham","size","màu","mau","color")):
+            _STOP = {
+                "thảm","tham","size","màu","mau","color",
+                "xanh","đen","trắng","đỏ","vàng","cam","tím","hồng","nâu","xám","kem",
+                "grey","gray","blue","beige","green","red","black","white","brown","pink","navy",
+                "lót","cửa","đậm","nhạt","sáng","tối","đẹp","mẫu","loại","sang",
+            }
+            if any(tok in text_lower for tok in tokens if tok not in _STOP):
                 matched.append(p)
         return matched
     except Exception:
