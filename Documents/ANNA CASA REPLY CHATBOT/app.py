@@ -1000,16 +1000,26 @@ def process_image(sender_id, image_url, caption=""):
                 },
                 {
                     "type": "text",
-                    "text": f"Khách gửi hình này{f' kèm tin nhắn: \"{caption}\"' if caption else ''}. Nếu khách hỏi về sản phẩm không phải thảm (sofa, bàn, đèn...) thì reply [ESCALATE] + 'Dạ sản phẩm này em sẽ nhờ chuyên viên hỗ trợ anh chị thêm ạ'. Nếu khách hỏi về thảm hoặc không rõ → phân tích màu sắc và họa tiết trong ảnh, tìm mẫu thảm tương tự và gợi ý."
+                    "text": (
+                        f"Khách gửi ảnh này{f' kèm tin nhắn: \"{caption}\"' if caption else ''}.\n\n"
+                        "Lưu ý: ảnh có thể là screenshot chụp màn hình từ Reels/video — bỏ qua mọi UI overlay "
+                        "(nút play, thanh progress, icon app, chữ caption video) và chỉ phân tích NỘI DUNG thật trong ảnh.\n\n"
+                        "Quy tắc:\n"
+                        "- Thấy thảm trong ảnh → mô tả màu sắc, họa tiết, chất liệu → gợi ý sản phẩm gần nhất (tên + link) — KHÔNG hỏi lại khách\n"
+                        "- Khách hỏi giá/kích thước → trả lời theo data sản phẩm\n"
+                        "- Ảnh có đồ nội thất khác (sofa, bàn, đèn) không có thảm → [ESCALATE] + 'Dạ sản phẩm này em sẽ nhờ chuyên viên hỗ trợ anh chị thêm ạ'"
+                    )
                 }
             ]
         }
 
-        history = fetch_fb_conversation(sender_id) + [vision_message]
+        # Chỉ dùng lịch sử gần nhất, không để wallpaper context cũ override vision
+        recent_history = fetch_fb_conversation(sender_id)[-4:] if fetch_fb_conversation(sender_id) else []
+        history = recent_history + [vision_message]
 
         response = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=150,
+            max_tokens=500,
             system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
             messages=history,
             extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"}
@@ -1142,22 +1152,29 @@ def receive_webhook():
 
             # Xử lý ảnh / video / share
             if attachments:
-                has_image = any(att.get("type") == "image" for att in attachments)
-                if has_image:
-                    # Bot không đọc ảnh — thông báo và để nhân viên hỗ trợ
-                    def _notify_image(sid):
-                        name = get_sender_name(sid)
-                        first = (name.split()[-1] if name else "") or "bạn"
-                        pronoun = detect_gender(name)
-                        time.sleep(3)
-                        if is_human_handling(sid): return
-                        bot_sending.add(sid)
-                        send_text(sid, f"Dạ {first} ơi, bên em là chatbot AI nên chưa thể xem hình được ạ. Nhân viên tư vấn sẽ hỗ trợ {pronoun} sớm nhất có thể nhé!")
-                        bot_sending.discard(sid)
-                    threading.Thread(target=_notify_image, args=(sender_id,), daemon=True).start()
-                else:
-                    # Video, Reel, sticker, share — bỏ qua im lặng
-                    pass
+                has_image = False
+                for att in attachments:
+                    att_type = att.get("type")
+                    if att_type == "image":
+                        has_image = True
+                        image_url = att.get("payload", {}).get("url", "")
+                        if image_url:
+                            threading.Thread(
+                                target=process_image,
+                                args=(sender_id, image_url, text or ""),
+                                daemon=True
+                            ).start()
+                if not has_image:
+                    # Reel share thật / video / sticker — không xem được nội dung
+                    def _notify_reel(sid, caption):
+                        reel_ctx = (
+                            f"{caption}\n[Khách gửi kèm video/Reel — bot không xem được. "
+                            f"Nếu khách hỏi về nội dung video → nhờ khách gửi ảnh chụp màn hình để tư vấn chính xác hơn.]"
+                            if caption else
+                            "[Khách gửi video/Reel — bot không xem được. Nhờ khách gửi ảnh chụp màn hình nếu muốn tư vấn sản phẩm trong video.]"
+                        )
+                        process_message(sid, reel_ctx)
+                    threading.Thread(target=_notify_reel, args=(sender_id, text or ""), daemon=True).start()
                 continue
 
             # Xử lý text
