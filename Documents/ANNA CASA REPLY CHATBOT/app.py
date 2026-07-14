@@ -822,6 +822,14 @@ def process_message(sender_id, text):
         save_message(sender_id, "user", text)
         history = fetch_fb_conversation(sender_id)
 
+        # Sau restart, is_first sai vì greeted_users bị xóa — kiểm tra lịch sử thực tế
+        if is_first and len(history) > 2:
+            is_first = False
+            greeted_users.add(sender_id)
+            # Rebuild system without is_first instruction
+            system = SYSTEM_BASE.format(product_data=product_data) if cat else SYSTEM_BASE.format(product_data="(Chưa rõ khách hỏi sản phẩm gì — hỏi khách trước khi tư vấn)")
+            system += f"\n\nGọi khách là '{pronoun}' (không dùng 'anh chị' nếu đã biết giới tính)."
+
         response = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=600,
