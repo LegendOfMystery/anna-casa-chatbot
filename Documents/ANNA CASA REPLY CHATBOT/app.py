@@ -976,7 +976,8 @@ def process_image(sender_id, image_url, caption=""):
         is_first = sender_id not in greeted_users
         if is_first:
             greeted_users.add(sender_id)
-            greeting = GREETING_TEMPLATE.format(name=first_name)
+            pronoun = detect_gender(sender_name)
+            greeting = GREETING_TEMPLATE.format(pronoun=pronoun, name=first_name)
             time.sleep(5)
             if is_human_handling(sender_id): return
             bot_sending.add(sender_id)
