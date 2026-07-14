@@ -1078,6 +1078,9 @@ def receive_webhook():
             is_echo    = message.get("is_echo", False)
             attachments = message.get("attachments", [])
 
+            if attachments:
+                print(f"[ATTACH] types={[a.get('type') for a in attachments]} | echo={is_echo} | sid={sender_id}")
+
             if not sender_id:
                 continue
 
