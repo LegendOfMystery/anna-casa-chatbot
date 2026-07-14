@@ -842,16 +842,6 @@ def process_message(sender_id, text):
             product_list = "thảm, giấy dán tường, sofa, bàn cà phê, đèn trang trí, bàn ghế ăn, gói nội thất"
             system += f"\n\nĐây là tin nhắn ĐẦU TIÊN — LUÔN LUÔN reply, không bao giờ trả về [SKIP]. Bắt đầu bằng '{greeting}' rồi:\n- Nếu khách hỏi rõ về thảm hoặc giấy dán tường → tư vấn luôn\n- Nếu khách hỏi sản phẩm khác (sofa, đèn...) → reply escalate\n- Nếu chưa rõ nhu cầu → reply đúng 2 dòng: dòng 1 là câu chào '{greeting}', dòng 2 là 'Dạ {pronoun} cần tư vấn sản phẩm gì ạ, bên em có {product_list}'"
 
-        # Nếu khách đề cập tên sản phẩm cụ thể → inject kết quả tìm kiếm vào system
-        if cat:
-            name_matches = find_products_by_name_in_text(text, cat)
-            if name_matches:
-                lines = "\n".join(f"- {p['name']}: {p['price']} → {p['url']}" for p in name_matches[:3])
-                system += (
-                    f"\n\nKhách đang hỏi về sản phẩm theo tên. Kết quả tìm kiếm:\n{lines}\n"
-                    "→ Xác nhận có sản phẩm này và gửi link ngay. KHÔNG hỏi màu. KHÔNG yêu cầu ảnh."
-                )
-
         save_message(sender_id, "user", text)
         history = fetch_fb_conversation(sender_id)
 
@@ -862,6 +852,16 @@ def process_message(sender_id, text):
             # Rebuild system without is_first instruction
             system = SYSTEM_BASE.format(product_data=product_data) if cat else SYSTEM_BASE.format(product_data="(Chưa rõ khách hỏi sản phẩm gì — hỏi khách trước khi tư vấn)")
             system += f"\n\nGọi khách là '{pronoun}' (không dùng 'anh chị' nếu đã biết giới tính)."
+
+        # Nếu khách đề cập tên sản phẩm cụ thể → inject kết quả tìm kiếm vào system (phải sau mọi rebuild)
+        if cat:
+            name_matches = find_products_by_name_in_text(text, cat)
+            if name_matches:
+                lines = "\n".join(f"- {p['name']}: {p['price']} → {p['url']}" for p in name_matches[:3])
+                system += (
+                    f"\n\nKhách đang hỏi về sản phẩm theo tên. Kết quả tìm kiếm:\n{lines}\n"
+                    "→ Xác nhận có sản phẩm này và gửi link ngay. KHÔNG hỏi màu. KHÔNG yêu cầu ảnh."
+                )
 
         response = client.messages.create(
             model="claude-sonnet-4-6",
