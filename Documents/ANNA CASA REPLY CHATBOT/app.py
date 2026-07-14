@@ -163,6 +163,23 @@ def log_appointment_to_sheet(psid: str):
 
 
 def is_human_handling(sender_id): return sender_id in human_mode
+
+
+def find_products_by_name_in_text(text: str, category: str) -> list:
+    """Tìm sản phẩm theo từ khóa tên trong tin nhắn khách."""
+    try:
+        products = fetch_products_by_category(category)
+        text_lower = text.lower()
+        matched = []
+        for p in products:
+            name_lower = p.get("name", "").lower()
+            # Lấy từng "word token" trong tên sản phẩm (>= 3 ký tự, không phải số đơn thuần)
+            tokens = [w for w in name_lower.split() if len(w) >= 3 and not w.replace("x","").isdigit()]
+            if any(tok in text_lower for tok in tokens if tok not in ("thảm","tham","size","màu","mau","color")):
+                matched.append(p)
+        return matched
+    except Exception:
+        return []
 def fetch_fb_conversation(sender_id: str, limit: int = 8) -> list:
     """Fetch full conversation from Facebook API — includes automated + sales messages."""
     try:
@@ -818,6 +835,16 @@ def process_message(sender_id, text):
             greeting = f"Anna Casa xin chào {pronoun} {first_name}, em là Mai trợ lý AI tư vấn tại Anna Casa Vietnam." if first_name else f"Anna Casa xin chào {pronoun}, em là Mai trợ lý AI tư vấn tại Anna Casa Vietnam."
             product_list = "thảm, giấy dán tường, sofa, bàn cà phê, đèn trang trí, bàn ghế ăn, gói nội thất"
             system += f"\n\nĐây là tin nhắn ĐẦU TIÊN — LUÔN LUÔN reply, không bao giờ trả về [SKIP]. Bắt đầu bằng '{greeting}' rồi:\n- Nếu khách hỏi rõ về thảm hoặc giấy dán tường → tư vấn luôn\n- Nếu khách hỏi sản phẩm khác (sofa, đèn...) → reply escalate\n- Nếu chưa rõ nhu cầu → reply đúng 2 dòng: dòng 1 là câu chào '{greeting}', dòng 2 là 'Dạ {pronoun} cần tư vấn sản phẩm gì ạ, bên em có {product_list}'"
+
+        # Nếu khách đề cập tên sản phẩm cụ thể → inject kết quả tìm kiếm vào system
+        if cat:
+            name_matches = find_products_by_name_in_text(text, cat)
+            if name_matches:
+                lines = "\n".join(f"- {p['name']}: {p['price']} → {p['url']}" for p in name_matches[:3])
+                system += (
+                    f"\n\nKhách đang hỏi về sản phẩm theo tên. Kết quả tìm kiếm:\n{lines}\n"
+                    "→ Xác nhận có sản phẩm này và gửi link ngay. KHÔNG hỏi màu. KHÔNG yêu cầu ảnh."
+                )
 
         save_message(sender_id, "user", text)
         history = fetch_fb_conversation(sender_id)
