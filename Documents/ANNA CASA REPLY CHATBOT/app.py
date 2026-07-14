@@ -485,6 +485,7 @@ NGOẠI LỆ QUAN TRỌNG — ưu tiên check trước khi hỏi màu:
 THỨ TỰ TƯ VẤN GIẤY DÁN TƯỜNG — tối đa 2 câu hỏi rồi gợi ý ngay:
 1. Hỏi 1 câu duy nhất: phong cách + màu sắc khách thích
 2. Khi đủ thông tin → gợi ý ngay tối đa 3 mẫu phù hợp từ dữ liệu giấy dán tường, kèm link. KHÔNG hỏi thêm.
+LƯU Ý QUAN TRỌNG — GIẤY DÁN TƯỜNG: Hỏi DIỆN TÍCH (m²) không bao giờ hỏi "size". Khi báo giá: "[tên mẫu]: [giá]/m² vật liệu + 120.000đ/m² thi công".
 
 THÔNG TIN BÁN GIẤY DÁN TƯỜNG:
 - Bán theo mét vuông (m²), không bán theo cuộn
@@ -1048,12 +1049,26 @@ def process_image(sender_id, image_url, caption=""):
             send_text(sender_id, "Dạ em không xem được hình, anh chị gửi lại thử nha.")
             return
 
-        # Set category so follow-up text messages load rug products
-        user_category[sender_id] = "tham"
+        # Dùng category đã biết từ context; nếu chưa biết thì mặc định thảm
+        cat = user_category.get(sender_id) or "tham"
+        user_category[sender_id] = cat
 
-        products = fetch_products_by_category("tham")
+        products = fetch_products_by_category(cat)
         product_data = format_products_for_claude(products)
         system = SYSTEM_BASE.replace("{product_data}", product_data)
+
+        # Vision prompt tuỳ theo category
+        if cat == "giay_dan_tuong":
+            vision_rules = (
+                "- Thấy giấy dán tường trong ảnh → mô tả họa tiết, màu sắc, phong cách → gợi ý 2-3 mẫu gần nhất (tên + link) → hỏi diện tích cần dán (m²)\n"
+                "- Khi báo giá: nêu giá vật liệu/m² + phí thi công 120.000đ/m² (không bán theo cuộn)\n"
+                "- Ảnh không liên quan đến giấy dán tường → [ESCALATE] + 'Dạ sản phẩm này em sẽ nhờ chuyên viên hỗ trợ thêm ạ'"
+            )
+        else:
+            vision_rules = (
+                "- Thấy thảm trong ảnh → ngay lập tức mô tả màu sắc, họa tiết, chất liệu nhìn thấy → gợi ý 2-3 sản phẩm gần nhất (tên + link) → hỏi size\n"
+                "- Ảnh có đồ nội thất khác (sofa, bàn, đèn) không có thảm → [ESCALATE] + 'Dạ sản phẩm này em sẽ nhờ chuyên viên hỗ trợ anh chị thêm ạ'"
+            )
 
         # Gọi Claude với ảnh
         vision_message = {
@@ -1073,10 +1088,8 @@ def process_image(sender_id, image_url, caption=""):
                         f"Khách gửi ảnh này{f' kèm tin nhắn: \"{caption}\"' if caption else ''}.\n\n"
                         "Lưu ý: ảnh có thể là screenshot chụp màn hình từ Reels/video — bỏ qua mọi UI overlay "
                         "(nút play, thanh progress, icon app, chữ caption video) và chỉ phân tích NỘI DUNG thật trong ảnh.\n\n"
-                        "QUAN TRỌNG — KHÔNG BAO GIỜ hỏi lại khách về màu sắc, kích thước, hay tone màu khi thấy thảm trong ảnh.\n\n"
-                        "Quy tắc:\n"
-                        "- Thấy thảm trong ảnh → ngay lập tức mô tả màu sắc, họa tiết, chất liệu nhìn thấy → gợi ý 2-3 sản phẩm gần nhất (tên + link) → hỏi size\n"
-                        "- Ảnh có đồ nội thất khác (sofa, bàn, đèn) không có thảm → [ESCALATE] + 'Dạ sản phẩm này em sẽ nhờ chuyên viên hỗ trợ anh chị thêm ạ'"
+                        "QUAN TRỌNG — KHÔNG BAO GIỜ hỏi lại khách về màu sắc hay tone màu khi đã thấy rõ trong ảnh.\n\n"
+                        f"Quy tắc:\n{vision_rules}"
                     )
                 }
             ]
