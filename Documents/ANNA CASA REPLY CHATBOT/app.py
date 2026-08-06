@@ -92,6 +92,7 @@ user_pending_products: dict[str, list] = {}  # psid -> [product dicts] đang ch�
 notification_feed = deque(maxlen=100)
 bot_enabled = True
 asked_zalo: set = set()  # Đã hỏi Zalo → dừng reply
+admin_extra_rules: list[str] = []  # Rules thêm qua Telegram /rule
 
 # ── TELEGRAM APPROVAL STORE ───────────────────────────────────────────────────
 # pending_approvals: tg_msg_id -> {sender_id, draft, cat, pronoun, is_first, needs_esc, ...}
@@ -536,6 +537,12 @@ TUYỆT ĐỐI KHÔNG:
 - Hỏi lại những gì khách đã nói
 - Dùng dấu gạch chéo, em dash, chấm lửng
 - Gửi catalogue PDF (thay vào đó gửi link: https://annacasavn.com/giay-dan-tuong cho giấy dán tường, https://annacasavn.com/tham cho thảm)
+- Dùng emoji trong tin nhắn
+- Hỏi màu sắc khi khách hỏi về sản phẩm cụ thể — hỏi thẳng "Anh chị đang cần mẫu nào ạ?" rồi gửi ảnh các mẫu
+
+QUY TẮC PHONG CÁCH:
+- Trả lời ngắn gọn, súc tích — không dài dòng
+- Khi tư vấn sản phẩm: hỏi ngắn "Anh chị đang cần mẫu nào ạ?" rồi gửi ảnh các mẫu kèm theo
 
 Dữ liệu sản phẩm thảm hiện có:
 {product_data}"""
@@ -972,6 +979,8 @@ def process_message(sender_id, text):
             product_data = "(Chưa rõ khách hỏi sản phẩm gì — hỏi khách trước khi tư vấn)"
         system = SYSTEM_BASE.format(product_data=product_data)
         system += f"\n\nGọi khách là '{pronoun}' (không dùng 'anh chị' nếu đã biết giới tính)."
+        if admin_extra_rules:
+            system += "\n\nQUY TẮC BỔ SUNG TỪ ADMIN:\n" + "\n".join(f"- {r}" for r in admin_extra_rules)
 
         if is_first:
             greeting = f"Anna Casa xin chào {pronoun} {first_name}, em là Mai trợ lý AI tư vấn tại Anna Casa Vietnam." if first_name else f"Anna Casa xin chào {pronoun}, em là Mai trợ lý AI tư vấn tại Anna Casa Vietnam."
@@ -1333,13 +1342,37 @@ def telegram_webhook():
 
         return "ok", 200
 
-    # ── Message thường (feedback text) ───────────────────────────────────────
+    # ── Message thường (feedback text hoặc lệnh) ─────────────────────────────
     if "message" in data:
         msg      = data["message"]
         chat_id  = msg.get("chat", {}).get("id")
         text     = msg.get("text", "").strip()
 
-        if not text or text.startswith("/"):
+        if not text:
+            return "ok", 200
+
+        # Lệnh /rule — thêm rule mới vào system prompt
+        if text.startswith("/rule "):
+            rule = text[6:].strip()
+            if rule:
+                admin_extra_rules.append(rule)
+                tg_send(f"✅ Đã thêm rule:\n<i>{rule}</i>\n\nTổng {len(admin_extra_rules)} rule đang active.")
+            return "ok", 200
+
+        if text.startswith("/rules"):
+            if admin_extra_rules:
+                rules_text = "\n".join(f"{i+1}. {r}" for i, r in enumerate(admin_extra_rules))
+                tg_send(f"📋 <b>Rules hiện tại:</b>\n{rules_text}")
+            else:
+                tg_send("Chưa có rule nào. Dùng /rule [nội dung] để thêm.")
+            return "ok", 200
+
+        if text.startswith("/clearrules"):
+            admin_extra_rules.clear()
+            tg_send("🗑️ Đã xóa tất cả rules.")
+            return "ok", 200
+
+        if text.startswith("/"):
             return "ok", 200
 
         orig_msg_id = awaiting_feedback.pop(chat_id, None)
