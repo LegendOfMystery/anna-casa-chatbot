@@ -634,8 +634,9 @@ def tg_answer_callback(callback_id, text=""):
 def send_for_approval(sender_id, sender_name, customer_msg, draft, context: dict):
     """Gửi draft lên Telegram để admin duyệt thay vì gửi thẳng cho khách."""
     preview_msg = (customer_msg or "")[:200]
+    display_name = sender_name or f"Khách ({sender_id[-6:]})"
     text = (
-        f"👤 <b>{sender_name}</b>\n"
+        f"👤 <b>{display_name}</b>\n"
         f"💬 {preview_msg}\n\n"
         f"🤖 <b>Draft reply:</b>\n{draft}"
     )
