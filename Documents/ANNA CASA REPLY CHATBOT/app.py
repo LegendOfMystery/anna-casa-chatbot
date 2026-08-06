@@ -336,6 +336,7 @@ _catalog_loaded_at: float = 0
 _CATALOG_FILES = {
     "tham": Path(__file__).parent / "products.json",
     "giay_dan_tuong": Path(__file__).parent / "wallpaper_products.json",
+    "ghe_bar": Path(__file__).parent / "ghe_bar_products.json",
 }
 _PRODUCTS_TTL = 3600
 
@@ -419,6 +420,10 @@ def format_products_for_claude(products: list[dict], category: str = None) -> st
         for p in products:
             visual = p.get('visual_description', '')
             lines.append(f"- {p.get('name','')} | Màu/Họa tiết: {visual[:60]} | Link: {p.get('url','')}")
+    elif category == "ghe_bar":
+        lines = ["=== GHẾ BAR ==="]
+        for p in products:
+            lines.append(f"- {p.get('name','')} | Giá: {p.get('price','')} | Chất liệu: {p.get('material','')} | Link: {p.get('url','')}")
     else:
         # fallback: cả 2
         rugs = [p for p in products if p.get("category") == "tham"]
@@ -955,7 +960,11 @@ def process_message(sender_id, text):
         if any(k in t for k in ["giấy dán tường", "giay dan tuong", "wallpaper", "giấy dán", "giay dan"]):
             cat = "giay_dan_tuong"
             user_category[sender_id] = cat
-            user_pending_products.pop(sender_id, None)  # clear pending thảm nếu có
+            user_pending_products.pop(sender_id, None)
+        elif any(k in t for k in ["ghế bar", "ghe bar", "bar chair", "barstool", "bar stool"]):
+            cat = "ghe_bar"
+            user_category[sender_id] = cat
+            user_pending_products.pop(sender_id, None)
         elif any(k in t for k in ["thảm", "tham", "carpet", "rug"]):
             if not cat or cat != "tham":
                 cat = "tham"
