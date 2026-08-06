@@ -680,37 +680,42 @@ def do_send_approved(entry: dict):
 
     bot_sending.add(sender_id)
     try:
-        if cat == "tham":
-            all_rugs = {p["url"]: p for p in fetch_products_by_category("tham")}
-            found_urls = re.findall(r'https://annacasavn\.com/tham[^\s\)\"]+', draft)
-            matched = [all_rugs[u] for u in found_urls[:3] if u in all_rugs and all_rugs[u].get("img")]
-            if matched:
-                user_pending_products[sender_id] = matched
-                for i, prod in enumerate(matched, 1):
-                    raw_material = prod.get("material", "")
-                    material_desc = get_material_benefit(raw_material) if raw_material else get_material_info(prod["name"])
-                    label = f"Mẫu {i}: {prod['name']}"
-                    if material_desc:
-                        label += f"\nDạ mẫu này {material_desc} ạ"
-                    time.sleep(1)
-                    send_text(sender_id, label)
-                    time.sleep(1)
-                    send_image(sender_id, prod["img"])
-                time.sleep(1)
-                send_text(sender_id, f"Dạ {pronoun} thích mẫu nào ạ?")
-            else:
-                send_text(sender_id, draft)
+        # Tìm tất cả URL annacasavn.com trong draft → gửi ảnh sản phẩm kèm
+        found_urls = re.findall(r'https://annacasavn\.com/[^\s\)\"]+', draft)
+        if found_urls:
+            all_products = {p["url"]: p for p in fetch_all_products()}
+            matched = [all_products[u] for u in found_urls[:3] if u in all_products and all_products[u].get("img")]
         else:
-            if is_first:
-                parts = re.split(r'(?<=nha\.)\s+|(?<=nha,)\s+', draft, maxsplit=1)
-                if len(parts) == 2:
-                    send_text(sender_id, parts[0].strip())
-                    time.sleep(1)
-                    send_text(sender_id, parts[1].strip())
-                else:
-                    send_text(sender_id, draft)
+            matched = []
+
+        # Gửi text trước
+        clean_draft = draft.replace("[Hình ảnh các mẫu]", "").replace("[Hình ảnh các mẫu ghế bar]", "").strip()
+        if is_first:
+            parts = re.split(r'(?<=nha\.)\s+|(?<=nha,)\s+', clean_draft, maxsplit=1)
+            if len(parts) == 2:
+                send_text(sender_id, parts[0].strip())
+                time.sleep(1)
+                send_text(sender_id, parts[1].strip())
             else:
-                send_text(sender_id, draft)
+                send_text(sender_id, clean_draft)
+        else:
+            send_text(sender_id, clean_draft)
+
+        # Gửi ảnh sản phẩm nếu có
+        if matched:
+            user_pending_products[sender_id] = matched
+            for i, prod in enumerate(matched, 1):
+                raw_material = prod.get("material", "")
+                material_desc = get_material_benefit(raw_material) if raw_material else get_material_info(prod["name"])
+                label = f"Mẫu {i}: {prod['name']}"
+                if material_desc:
+                    label += f"\nDạ mẫu này {material_desc} ạ"
+                time.sleep(1)
+                send_text(sender_id, label)
+                time.sleep(1)
+                send_image(sender_id, prod["img"])
+            time.sleep(1)
+            send_text(sender_id, f"Dạ {pronoun} thích mẫu nào ạ?")
 
         if needs_esc:
             notify_escalate(sender_id, sender_name, entry.get("customer_msg", ""))
