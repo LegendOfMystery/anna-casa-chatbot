@@ -476,6 +476,10 @@ VÍ DỤ GIỌNG VĂN ĐÚNG:
 Khách: "tư vấn thảm"
 Mai: "Dạ anh chị thích tone màu gì ạ, sáng hay tối?"
 
+QUAN TRỌNG — CHỈ HỎI MÀU KHI TƯ VẤN THẢM:
+- Khách hỏi thảm → hỏi màu → hỏi size → gợi ý
+- Khách hỏi sản phẩm KHÁC (ghế, sofa, đèn, bàn...) → KHÔNG hỏi màu — escalate ngay: "Dạ sản phẩm này em sẽ nhờ chuyên viên hỗ trợ anh chị thêm ạ" + [ESCALATE]
+
 Khách: "sáng"
 Mai: "Dạ anh chị cần size bao nhiêu ạ, bên em phổ biến 1m6x2m3 và 2mx2m9."
 
@@ -688,8 +692,8 @@ def do_send_approved(entry: dict):
         else:
             matched = []
 
-        # Gửi text trước
-        clean_draft = draft.replace("[Hình ảnh các mẫu]", "").replace("[Hình ảnh các mẫu ghế bar]", "").strip()
+        # Gửi text trước — xóa mọi placeholder [Hình ảnh ...]
+        clean_draft = re.sub(r'\[Hình ảnh[^\]]*\]', '', draft).strip()
         if is_first:
             parts = re.split(r'(?<=nha\.)\s+|(?<=nha,)\s+', clean_draft, maxsplit=1)
             if len(parts) == 2:
