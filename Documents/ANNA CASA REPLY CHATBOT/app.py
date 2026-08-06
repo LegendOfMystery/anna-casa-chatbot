@@ -24,7 +24,9 @@ META_VERIFY_TOKEN   = os.environ["META_VERIFY_TOKEN"]
 ANTHROPIC_API_KEY   = os.environ["ANTHROPIC_API_KEY"]
 GOOGLE_API_KEY      = os.environ["GOOGLE_API_KEY"]
 SHEET_ID            = os.environ["SHEET_ID"]
-ESCALATE_NOTIFY_URL = os.environ.get("ESCALATE_NOTIFY_URL", "")
+ESCALATE_NOTIFY_URL  = os.environ.get("ESCALATE_NOTIFY_URL", "")
+TELEGRAM_BOT_TOKEN   = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID     = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -90,6 +92,11 @@ user_pending_products: dict[str, list] = {}  # psid -> [product dicts] đang ch�
 notification_feed = deque(maxlen=100)
 bot_enabled = True
 asked_zalo: set = set()  # Đã hỏi Zalo → dừng reply
+
+# ── TELEGRAM APPROVAL STORE ───────────────────────────────────────────────────
+# pending_approvals: tg_msg_id -> {sender_id, draft, cat, pronoun, is_first, needs_esc, ...}
+pending_approvals: dict[int, dict] = {}
+awaiting_feedback: dict[int, int] = {}  # tg_chat_id -> tg_msg_id (chờ user nhập feedback)
 
 # ── LEAD TRACKING & APPOINTMENT ───────────────────────────────────────────────
 ref_store:        dict[str, str] = {}   # psid -> ref code từ ad
@@ -577,6 +584,133 @@ def download_image_as_base64(url: str) -> tuple[str, str] | tuple[None, None]:
     return None, None
 
 
+# ── TELEGRAM HELPERS ──────────────────────────────────────────────────────────
+def tg_send(text, reply_markup=None):
+    """Gửi tin nhắn tới admin qua Telegram. Trả về message_id."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return None
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML"}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    try:
+        r = requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+            json=payload, timeout=10
+        )
+        return r.json().get("result", {}).get("message_id")
+    except Exception as e:
+        print(f"tg_send error: {e}")
+        return None
+
+
+def tg_edit(msg_id, text, reply_markup=None):
+    """Sửa tin nhắn Telegram đã gửi."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "message_id": msg_id, "text": text, "parse_mode": "HTML"}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageText",
+            json=payload, timeout=10
+        )
+    except Exception as e:
+        print(f"tg_edit error: {e}")
+
+
+def tg_answer_callback(callback_id, text=""):
+    if not TELEGRAM_BOT_TOKEN:
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery",
+            json={"callback_query_id": callback_id, "text": text}, timeout=5
+        )
+    except Exception:
+        pass
+
+
+def send_for_approval(sender_id, sender_name, customer_msg, draft, context: dict):
+    """Gửi draft lên Telegram để admin duyệt thay vì gửi thẳng cho khách."""
+    preview_msg = (customer_msg or "")[:200]
+    text = (
+        f"👤 <b>{sender_name}</b>\n"
+        f"💬 {preview_msg}\n\n"
+        f"🤖 <b>Draft reply:</b>\n{draft}"
+    )
+    markup = {
+        "inline_keyboard": [[
+            {"text": "✅ Gửi", "callback_data": f"approve"},
+            {"text": "✏️ Góp ý", "callback_data": f"feedback"}
+        ]]
+    }
+    tg_msg_id = tg_send(text, markup)
+    if tg_msg_id:
+        pending_approvals[tg_msg_id] = {
+            "sender_id": sender_id,
+            "sender_name": sender_name,
+            "customer_msg": customer_msg,
+            "draft": draft,
+            "context": context,
+        }
+    return tg_msg_id
+
+
+def do_send_approved(entry: dict):
+    """Thực sự gửi reply đã được duyệt lên Facebook."""
+    sender_id  = entry["sender_id"]
+    draft      = entry["draft"]
+    ctx        = entry.get("context", {})
+    pronoun    = ctx.get("pronoun", "anh")
+    cat        = ctx.get("cat", "")
+    is_first   = ctx.get("is_first", False)
+    needs_esc  = ctx.get("needs_esc", False)
+    sender_name = entry.get("sender_name", "")
+
+    save_message(sender_id, "assistant", draft)
+
+    bot_sending.add(sender_id)
+    try:
+        if cat == "tham":
+            all_rugs = {p["url"]: p for p in fetch_products_by_category("tham")}
+            found_urls = re.findall(r'https://annacasavn\.com/tham[^\s\)\"]+', draft)
+            matched = [all_rugs[u] for u in found_urls[:3] if u in all_rugs and all_rugs[u].get("img")]
+            if matched:
+                user_pending_products[sender_id] = matched
+                for i, prod in enumerate(matched, 1):
+                    raw_material = prod.get("material", "")
+                    material_desc = get_material_benefit(raw_material) if raw_material else get_material_info(prod["name"])
+                    label = f"Mẫu {i}: {prod['name']}"
+                    if material_desc:
+                        label += f"\nDạ mẫu này {material_desc} ạ"
+                    time.sleep(1)
+                    send_text(sender_id, label)
+                    time.sleep(1)
+                    send_image(sender_id, prod["img"])
+                time.sleep(1)
+                send_text(sender_id, f"Dạ {pronoun} thích mẫu nào ạ?")
+            else:
+                send_text(sender_id, draft)
+        else:
+            if is_first:
+                parts = re.split(r'(?<=nha\.)\s+|(?<=nha,)\s+', draft, maxsplit=1)
+                if len(parts) == 2:
+                    send_text(sender_id, parts[0].strip())
+                    time.sleep(1)
+                    send_text(sender_id, parts[1].strip())
+                else:
+                    send_text(sender_id, draft)
+            else:
+                send_text(sender_id, draft)
+
+        if needs_esc:
+            notify_escalate(sender_id, sender_name, entry.get("customer_msg", ""))
+    finally:
+        time.sleep(10)
+        bot_sending.discard(sender_id)
+
+
 # ── ESCALATE ──────────────────────────────────────────────────────────────────
 def notify_escalate(sender_id, sender_name, message):
     if not ESCALATE_NOTIFY_URL:
@@ -927,38 +1061,58 @@ def process_message(sender_id, text):
             asked_zalo.add(sender_id)
             print(f"[ZALO] {sender_id} requested Zalo contact")
 
-        bot_sending.add(sender_id)
-        time.sleep(5)
-        if is_human_handling(sender_id):
-            bot_sending.discard(sender_id)
-            return
+        # Gửi Telegram để admin duyệt (nếu Telegram configured), không auto-gửi nữa
+        if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+            send_for_approval(
+                sender_id, sender_name, text, clean_reply,
+                context={"cat": cat, "pronoun": pronoun, "is_first": is_first, "needs_esc": needs_esc}
+            )
+            # Đánh dấu đã chào để tránh chào lại
+            if is_first:
+                greeted_users.add(sender_id)
+            save_message(sender_id, "assistant", clean_reply)
+        else:
+            # Fallback: gửi thẳng nếu chưa config Telegram
+            bot_sending.add(sender_id)
+            time.sleep(5)
+            if is_human_handling(sender_id):
+                bot_sending.discard(sender_id)
+                return
 
-        # Gửi ảnh thảm nếu reply có link sản phẩm thảm — không gửi text reply
-        if cat == "tham":
-            all_rugs = {p["url"]: p for p in fetch_products_by_category("tham")}
-            found_urls = re.findall(r'https://annacasavn\.com/tham[^\s\)\"]+', clean_reply)
-            matched = [all_rugs[u] for u in found_urls[:3] if u in all_rugs and all_rugs[u].get("img")]
-            if matched:
-                user_pending_products[sender_id] = matched
-                for i, prod in enumerate(matched, 1):
-                    raw_material = prod.get("material", "")
-                    material_desc = get_material_benefit(raw_material) if raw_material else get_material_info(prod["name"])
-                    origin = prod.get("origin", "")
-                    label = f"Mẫu {i}: {prod['name']}"
-                    if material_desc:
-                        mat_line = f"Dạ mẫu này {material_desc}"
-                        if origin:
-                            mat_line += f", nhập khẩu từ {origin}"
-                        label += f"\n{mat_line} ạ"
+            if cat == "tham":
+                all_rugs = {p["url"]: p for p in fetch_products_by_category("tham")}
+                found_urls = re.findall(r'https://annacasavn\.com/tham[^\s\)\"]+', clean_reply)
+                matched = [all_rugs[u] for u in found_urls[:3] if u in all_rugs and all_rugs[u].get("img")]
+                if matched:
+                    user_pending_products[sender_id] = matched
+                    for i, prod in enumerate(matched, 1):
+                        raw_material = prod.get("material", "")
+                        material_desc = get_material_benefit(raw_material) if raw_material else get_material_info(prod["name"])
+                        origin = prod.get("origin", "")
+                        label = f"Mẫu {i}: {prod['name']}"
+                        if material_desc:
+                            mat_line = f"Dạ mẫu này {material_desc}"
+                            if origin:
+                                mat_line += f", nhập khẩu từ {origin}"
+                            label += f"\n{mat_line} ạ"
+                        time.sleep(1)
+                        send_text(sender_id, label)
+                        time.sleep(1)
+                        send_image(sender_id, prod["img"])
                     time.sleep(1)
-                    send_text(sender_id, label)
-                    time.sleep(1)
-                    send_image(sender_id, prod["img"])
-                time.sleep(1)
-                send_text(sender_id, f"Dạ {pronoun} thích mẫu nào ạ?")
-                # Bỏ qua text reply từ Claude khi đã gửi ảnh
+                    send_text(sender_id, f"Dạ {pronoun} thích mẫu nào ạ?")
+                else:
+                    if is_first:
+                        parts = re.split(r'(?<=nha\.)\s+|(?<=nha,)\s+', clean_reply, maxsplit=1)
+                        if len(parts) == 2:
+                            send_text(sender_id, parts[0].strip())
+                            time.sleep(1)
+                            send_text(sender_id, parts[1].strip())
+                        else:
+                            send_text(sender_id, clean_reply)
+                    else:
+                        send_text(sender_id, clean_reply)
             else:
-                # Không có ảnh → gửi text bình thường
                 if is_first:
                     parts = re.split(r'(?<=nha\.)\s+|(?<=nha,)\s+', clean_reply, maxsplit=1)
                     if len(parts) == 2:
@@ -969,18 +1123,6 @@ def process_message(sender_id, text):
                         send_text(sender_id, clean_reply)
                 else:
                     send_text(sender_id, clean_reply)
-        else:
-            # Tin đầu tiên → tách câu chào thành tin riêng
-            if is_first:
-                parts = re.split(r'(?<=nha\.)\s+|(?<=nha,)\s+', clean_reply, maxsplit=1)
-                if len(parts) == 2:
-                    send_text(sender_id, parts[0].strip())
-                    time.sleep(1)
-                    send_text(sender_id, parts[1].strip())
-                else:
-                    send_text(sender_id, clean_reply)
-            else:
-                send_text(sender_id, clean_reply)
 
         # Gửi confirm appointment nếu Claude detect khách đồng ý ngay trong reply
         if appointment_flag:
@@ -1134,21 +1276,119 @@ def process_image(sender_id, image_url, caption=""):
         reply = response.content[0].text
         clean_reply = reply.replace("[ESCALATE]", "").replace("[SKIP]", "").strip()
 
-        # Lưu vào history dạng text — ghi rõ "hình thảm" để Claude hiểu context khi user follow-up
-        save_message(sender_id, "user", f"[Khách gửi hình thảm{f' kèm: {caption}' if caption else ''}]")
+        save_message(sender_id, "user", f"[Khách gửi hình{f' kèm: {caption}' if caption else ''}]")
         save_message(sender_id, "assistant", clean_reply)
 
-        time.sleep(3)
-        if is_human_handling(sender_id): return
-
-        bot_sending.add(sender_id)
-        send_text(sender_id, clean_reply)
-        time.sleep(10)
-        bot_sending.discard(sender_id)
+        if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+            send_for_approval(
+                sender_id, sender_name,
+                f"[Gửi hình{f' + \"{caption}\"' if caption else ''}]",
+                clean_reply,
+                context={"cat": cat, "pronoun": detect_gender(sender_name), "is_first": False, "needs_esc": False}
+            )
+        else:
+            time.sleep(3)
+            if is_human_handling(sender_id): return
+            bot_sending.add(sender_id)
+            send_text(sender_id, clean_reply)
+            time.sleep(10)
+            bot_sending.discard(sender_id)
 
     except Exception as e:
         print(f"process_image error: {e}")
         bot_sending.discard(sender_id)
+
+
+# ── TELEGRAM WEBHOOK ─────────────────────────────────────────────────────────
+@app.route("/telegram_webhook", methods=["POST"])
+def telegram_webhook():
+    data = request.get_json()
+    if not data:
+        return "ok", 200
+
+    # ── Callback query (nút bấm) ─────────────────────────────────────────────
+    if "callback_query" in data:
+        cq        = data["callback_query"]
+        cq_id     = cq["id"]
+        cq_data   = cq.get("data", "")
+        tg_msg_id = cq["message"]["message_id"]
+        entry     = pending_approvals.get(tg_msg_id)
+
+        if not entry:
+            tg_answer_callback(cq_id, "Không tìm thấy tin nhắn này.")
+            return "ok", 200
+
+        if cq_data == "approve":
+            tg_answer_callback(cq_id, "✅ Đang gửi...")
+            tg_edit(tg_msg_id, f"✅ <b>Đã gửi</b>\n\n{entry['draft']}")
+            pending_approvals.pop(tg_msg_id, None)
+            threading.Thread(target=do_send_approved, args=(entry,), daemon=True).start()
+
+        elif cq_data == "feedback":
+            tg_answer_callback(cq_id, "Nhập góp ý bên dưới:")
+            tg_edit(tg_msg_id, f"✏️ <b>Chờ góp ý...</b>\n\n{entry['draft']}")
+            awaiting_feedback[int(TELEGRAM_CHAT_ID)] = tg_msg_id
+            tg_send("Nhập góp ý của bạn (Claude sẽ sửa lại draft):")
+
+        return "ok", 200
+
+    # ── Message thường (feedback text) ───────────────────────────────────────
+    if "message" in data:
+        msg      = data["message"]
+        chat_id  = msg.get("chat", {}).get("id")
+        text     = msg.get("text", "").strip()
+
+        if not text or text.startswith("/"):
+            return "ok", 200
+
+        orig_msg_id = awaiting_feedback.pop(chat_id, None)
+        if not orig_msg_id:
+            return "ok", 200
+
+        entry = pending_approvals.get(orig_msg_id)
+        if not entry:
+            tg_send("Không tìm thấy draft tương ứng.")
+            return "ok", 200
+
+        # Gọi Claude sửa lại draft theo feedback
+        def revise_and_show():
+            try:
+                feedback_prompt = (
+                    f"Draft reply gốc:\n{entry['draft']}\n\n"
+                    f"Góp ý của admin: {text}\n\n"
+                    f"Hãy sửa lại draft theo góp ý, giữ nguyên phong cách tư vấn Anna Casa, trả về chỉ nội dung reply đã sửa."
+                )
+                rev = client.messages.create(
+                    model="claude-sonnet-4-6",
+                    max_tokens=600,
+                    messages=[{"role": "user", "content": feedback_prompt}]
+                )
+                new_draft = rev.content[0].text.strip()
+                entry["draft"] = new_draft
+
+                sender_name = entry.get("sender_name", "Khách")
+                customer_msg = (entry.get("customer_msg") or "")[:200]
+                new_text = (
+                    f"👤 <b>{sender_name}</b>\n"
+                    f"💬 {customer_msg}\n\n"
+                    f"🤖 <b>Draft đã sửa:</b>\n{new_draft}"
+                )
+                markup = {
+                    "inline_keyboard": [[
+                        {"text": "✅ Gửi", "callback_data": "approve"},
+                        {"text": "✏️ Góp ý", "callback_data": "feedback"}
+                    ]]
+                }
+                new_msg_id = tg_send(new_text, markup)
+                if new_msg_id:
+                    pending_approvals.pop(orig_msg_id, None)
+                    pending_approvals[new_msg_id] = entry
+            except Exception as e:
+                tg_send(f"Lỗi khi sửa draft: {e}")
+
+        threading.Thread(target=revise_and_show, daemon=True).start()
+
+    return "ok", 200
 
 
 # ── WEBHOOK VERIFY ────────────────────────────────────────────────────────────
