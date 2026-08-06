@@ -93,6 +93,7 @@ notification_feed = deque(maxlen=100)
 bot_enabled = True
 asked_zalo: set = set()  # Đã hỏi Zalo → dừng reply
 admin_extra_rules: list[str] = []  # Rules thêm qua Telegram /rule
+gbar_catalog_sent: set = set()  # Đã gửi catalog ảnh ghế bar cho khách này rồi
 
 # ── TELEGRAM APPROVAL STORE ───────────────────────────────────────────────────
 # pending_approvals: tg_msg_id -> {sender_id, draft, cat, pronoun, is_first, needs_esc, ...}
@@ -676,14 +677,15 @@ def send_for_approval(sender_id, sender_name, customer_msg, draft, context: dict
 
 def do_send_approved(entry: dict):
     """Thực sự gửi reply đã được duyệt lên Facebook."""
-    sender_id  = entry["sender_id"]
-    draft      = entry["draft"]
-    ctx        = entry.get("context", {})
-    pronoun    = ctx.get("pronoun", "anh")
-    cat        = ctx.get("cat", "")
-    is_first   = ctx.get("is_first", False)
-    needs_esc  = ctx.get("needs_esc", False)
-    sender_name = entry.get("sender_name", "")
+    sender_id       = entry["sender_id"]
+    draft           = entry["draft"]
+    ctx             = entry.get("context", {})
+    pronoun         = ctx.get("pronoun", "anh")
+    cat             = ctx.get("cat", "")
+    is_first        = ctx.get("is_first", False)
+    needs_esc       = ctx.get("needs_esc", False)
+    send_gbar_cat   = ctx.get("send_gbar_catalog", False)
+    sender_name     = entry.get("sender_name", "")
 
     save_message(sender_id, "assistant", draft)
 
@@ -696,6 +698,20 @@ def do_send_approved(entry: dict):
             matched = [all_products[u] for u in found_urls[:3] if u in all_products and all_products[u].get("img")]
         else:
             matched = []
+
+        # Gửi catalog ảnh ghế bar (nếu được yêu cầu) — trước text reply
+        if send_gbar_cat and sender_id not in gbar_catalog_sent:
+            gbar_prods = fetch_products_by_category("ghe_bar")
+            if gbar_prods:
+                send_text(sender_id, f"Dạ bên em hiện có {len(gbar_prods)} mẫu ghế bar ạ:")
+                time.sleep(1)
+                for prod in gbar_prods:
+                    if prod.get("img"):
+                        send_text(sender_id, f"• {prod['name']} — {prod['price']}\n{prod['url']}")
+                        time.sleep(0.5)
+                        send_image(sender_id, prod["img"])
+                        time.sleep(0.5)
+                gbar_catalog_sent.add(sender_id)
 
         # Gửi text trước — xóa mọi placeholder [Hình ảnh ...]
         clean_draft = re.sub(r'\[Hình ảnh[^\]]*\]', '', draft).strip()
@@ -1090,10 +1106,15 @@ def process_message(sender_id, text):
             print(f"[ZALO] {sender_id} requested Zalo contact")
 
         # Gửi Telegram để admin duyệt (nếu Telegram configured), không auto-gửi nữa
+        # Phát hiện lần đầu hỏi ghế bar chung (không có tên sản phẩm cụ thể)
+        is_gbar_general = (cat == "ghe_bar" and not find_products_by_name_in_text(text, "ghe_bar")
+                           and sender_id not in gbar_catalog_sent)
+
         if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
             send_for_approval(
                 sender_id, sender_name, text, clean_reply,
-                context={"cat": cat, "pronoun": pronoun, "is_first": is_first, "needs_esc": needs_esc}
+                context={"cat": cat, "pronoun": pronoun, "is_first": is_first, "needs_esc": needs_esc,
+                         "send_gbar_catalog": is_gbar_general}
             )
             # Đánh dấu đã chào để tránh chào lại
             if is_first:
