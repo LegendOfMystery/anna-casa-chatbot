@@ -25,6 +25,7 @@ ANTHROPIC_API_KEY   = os.environ["ANTHROPIC_API_KEY"]
 GOOGLE_API_KEY      = os.environ["GOOGLE_API_KEY"]
 SHEET_ID            = os.environ["SHEET_ID"]
 ESCALATE_NOTIFY_URL  = os.environ.get("ESCALATE_NOTIFY_URL", "")
+NTFY_TOPIC           = os.environ.get("NTFY_TOPIC", "")  # e.g. "annacasa-abc123"
 
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -102,6 +103,12 @@ SHOWROOM_HOURS   = "10:00 sáng đến 7:00 tối, tất cả các ngày trong t
 SHOWROOM_HOTLINE = "+84 909 072 820"
 LEAD_SHEET_NAME  = "Lead%20Register"
 
+# "PRIVATE TNL ANNA CASA - Nhật kí tư vấn" — sheet tracking ads/message riêng, khác SHEET_ID ở trên
+FB_TRACKING_SHEET_ID = "1n4MA99rflm55JiieyTa102cWnR5nqlBKRPheP42Ywgs"
+FB_MESSAGE_LOG_TAB    = "Facebook%20Message%20Log"
+ad_id_store:       dict[str, str] = {}   # psid -> ad_id từ referral (Click-to-Messenger ad)
+message_log_logged: set = set()          # psid đã được ghi vào Facebook Message Log rồi
+
 APPOINTMENT_CONFIRM = [
     "Dạ bên em rất vui được đón {pronoun} ạ 🙏",
     "📍 Showroom Anna Casa: {address}\n🕙 {hours}\n📞 Hotline: {hotline}",
@@ -142,6 +149,23 @@ def log_lead_to_sheet(psid: str, ref_code: str, phone: str = "", name: str = "")
         print(f"[LEAD] {ref_code} | {psid} | {name}")
     else:
         print(f"[LEAD ERROR] Failed to write to sheet")
+
+def log_new_lead_to_message_log(psid: str, name: str, ad_id: str = ""):
+    """Ghi lead mới (1 dòng/psid) vào tab Facebook Message Log của sheet tracking ads chính."""
+    from datetime import datetime
+    today = datetime.now().strftime("%-d/%-m/%Y")
+    # CREATE DATE, TÊN KH, NHU CẦU, SALE NAME, KÊNH LIÊN LẠC, AD ID, TÌNH TRẠNG KH, ƯU TIÊN, GIÁ TRỊ ĐƠN HÀNG, SỐ ĐIỆN THOẠI, GHI CHÚ
+    row = [today, name or "", "", "Long", "Facebook", ad_id, "Đang kết nối", "THẤP", "", "", ""]
+    ok = sheets_post(
+        f"/values/{FB_MESSAGE_LOG_TAB}!A:K:append?valueInputOption=USER_ENTERED",
+        {"values": [row]},
+        sheet_id=FB_TRACKING_SHEET_ID
+    )
+    if ok:
+        print(f"[MSG LOG] {name} | ad_id={ad_id} | {psid}")
+    else:
+        print(f"[MSG LOG ERROR] Failed to write to sheet for {psid}")
+
 
 def log_appointment_to_sheet(psid: str):
     from datetime import datetime
@@ -273,13 +297,13 @@ def get_sheets_token() -> str:
         print(f"[AUTH ERROR] {e}")
         return ""
 
-def sheets_post(url_path: str, payload: dict) -> bool:
+def sheets_post(url_path: str, payload: dict, sheet_id: str = None) -> bool:
     """POST tới Sheets API dùng service account token."""
     token = get_sheets_token()
     if not token:
         print("[SHEETS] No service account token")
         return False
-    url = f"https://sheets.googleapis.com/v4/spreadsheets/{SHEET_ID}{url_path}"
+    url = f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id or SHEET_ID}{url_path}"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     try:
         resp = requests.post(url, json=payload, headers=headers, timeout=10)
@@ -291,12 +315,12 @@ def sheets_post(url_path: str, payload: dict) -> bool:
         print(f"[SHEETS POST ERROR] {e}")
         return False
 
-def sheets_put(url_path: str, payload: dict) -> bool:
+def sheets_put(url_path: str, payload: dict, sheet_id: str = None) -> bool:
     """PUT tới Sheets API dùng service account token."""
     token = get_sheets_token()
     if not token:
         return False
-    url = f"https://sheets.googleapis.com/v4/spreadsheets/{SHEET_ID}{url_path}"
+    url = f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id or SHEET_ID}{url_path}"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     try:
         resp = requests.put(url, json=payload, headers=headers, timeout=10)
@@ -306,12 +330,12 @@ def sheets_put(url_path: str, payload: dict) -> bool:
         print(f"[SHEETS PUT ERROR] {e}")
         return False
 
-def sheets_get(url_path: str) -> dict:
+def sheets_get(url_path: str, sheet_id: str = None) -> dict:
     """GET tới Sheets API dùng service account token."""
     token = get_sheets_token()
     if not token:
         return {}
-    url = f"https://sheets.googleapis.com/v4/spreadsheets/{SHEET_ID}{url_path}"
+    url = f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id or SHEET_ID}{url_path}"
     headers = {"Authorization": f"Bearer {token}"}
     try:
         resp = requests.get(url, headers=headers, timeout=10)
@@ -482,7 +506,7 @@ Khách: "sáng"
 Mai: "Dạ anh chị cần size bao nhiêu ạ, bên em phổ biến 1m6x2m3 và 2mx2m9."
 
 Khách: "1m6x2m3"
-Mai: "Dạ tone sáng size 1m6x2m3 bên em có 3 mẫu phù hợp: [gợi ý 3 mẫu kèm link]"
+Mai: "Dạ tone sáng size 1m6x2m3 bên em có 3 mẫu phù hợp:\nMẫu 1: [tên] [giá] [link]\nMẫu 2: [tên] [giá] [link]\nMẫu 3: [tên] [giá] [link]"
 
 THỨ TỰ TƯ VẤN THẢM — đúng 2 câu hỏi rồi gợi ý ngay:
 NGOẠI LỆ QUAN TRỌNG — ưu tiên check trước khi hỏi màu:
@@ -505,17 +529,18 @@ THÔNG TIN BÁN GIẤY DÁN TƯỜNG:
 
 KHI GỢI Ý SẢN PHẨM THẢM:
 - Chọn tối đa 3 sản phẩm phù hợp nhất
-- Mỗi mẫu chỉ ghi tên ngắn + link, format: "Mẫu 1: [tên] [link]\nMẫu 2: [tên] [link]\nMẫu 3: [tên] [link]"
-- KHÔNG viết thêm mô tả dài, hệ thống sẽ tự gửi ảnh
+- Mỗi mẫu ghi tên ngắn + giá + link, format: "Mẫu 1: [tên] [giá] [link]\nMẫu 2: [tên] [giá] [link]\nMẫu 3: [tên] [giá] [link]"
+- Link để hệ thống tự gửi ảnh vào chat, khách sẽ không thấy link, chỉ thấy ảnh
+- KHÔNG viết thêm mô tả dài
 - Nếu không có mẫu khớp: nói thật, hỏi thêm để tìm mẫu gần nhất
 
 KHI GỢI Ý SẢN PHẨM GIẤY DÁN TƯỜNG:
-- Gợi ý tối đa 3 sản phẩm, mỗi mẫu 1 dòng ngắn + link
-- Kèm link để khách xem ảnh thực tế
+- Gợi ý tối đa 3 sản phẩm, mỗi mẫu 1 dòng ngắn gồm tên + giá + link
+- Link để hệ thống tự gửi ảnh vào chat, khách sẽ không thấy link
 
 KHI KHÁCH GỬI HÌNH:
 - Phân tích màu + họa tiết trong ảnh
-- Gợi ý 1-2 mẫu gần nhất từ dữ liệu, kèm link
+- Gợi ý 1-2 mẫu gần nhất từ dữ liệu, kèm link để hệ thống tự gửi ảnh
 - Nếu không có mẫu tương tự: hỏi kích thước để tư vấn tiếp
 
 KHI NÀO ESCALATE:
@@ -607,14 +632,21 @@ def _auto_send(sender_id: str, reply: str, pronoun: str, is_first: bool,
                 time.sleep(1)
                 for prod in gbar_prods:
                     if prod.get("img"):
-                        send_text(sender_id, f"• {prod['name']} — {prod['price']}\n{prod['url']}")
+                        send_text(sender_id, f"• {prod['name']} — {prod['price']}")
                         time.sleep(0.5)
                         send_image(sender_id, prod["img"])
                         time.sleep(0.5)
                 gbar_catalog_sent.add(sender_id)
 
-        # 2. Text reply — xóa placeholder ảnh
+        # 2. Text reply — xóa placeholder ảnh và link website (link dùng nội bộ để gửi ảnh, không hiện với khách)
         clean = re.sub(r'\[Hình ảnh[^\]]*\]', '', reply).strip()
+        clean = re.sub(r'https?://annacasavn\.com/[^\s\)\",\n]*', '', clean)
+        # Dọn cụm "tại đây:" / "xem tại:" mồ côi sau khi xóa link
+        clean = re.sub(r',?\s*tại đây\s*:?\s*(?=\n|$|\s*\n)', '', clean)
+        clean = re.sub(r',?\s*xem tại\s*:?\s*(?=\n|$|\s*\n)', '', clean)
+        clean = re.sub(r' {2,}', ' ', clean)
+        clean = re.sub(r'\n ', '\n', clean)
+        clean = clean.strip()
         if is_first:
             parts = re.split(r'(?<=nha\.)\s+|(?<=nha,)\s+', clean, maxsplit=1)
             if len(parts) == 2:
@@ -652,6 +684,31 @@ def _auto_send(sender_id: str, reply: str, pronoun: str, is_first: bool,
     finally:
         time.sleep(10)
         bot_sending.discard(sender_id)
+
+
+# ── NTFY PUSH NOTIFICATION ────────────────────────────────────────────────────
+def send_ntfy(sender_id: str, sender_name: str, body: str, is_image: bool = False):
+    if not NTFY_TOPIC:
+        return
+    try:
+        fb_url = f"https://business.facebook.com/latest/inbox/messenger?selected_thread_id={sender_id}"
+        tags = "bell,bust_in_silhouette"
+        if is_image:
+            tags = "bell,frame_with_picture"
+        headers = {
+            "Title": sender_name or "Khách mới",
+            "Priority": "high",
+            "Tags": tags,
+            "Click": fb_url,
+        }
+        requests.post(
+            f"https://ntfy.sh/{NTFY_TOPIC}",
+            data=body[:500].encode("utf-8"),
+            headers=headers,
+            timeout=5,
+        )
+    except Exception as e:
+        print(f"[ntfy] {e}")
 
 
 # ── ESCALATE ──────────────────────────────────────────────────────────────────
@@ -778,12 +835,27 @@ def process_message(sender_id, text):
         pronoun = detect_gender(sender_name)
         print(f"[DEBUG] name='{sender_name}' first='{first_name}' pronoun='{pronoun}'")
 
+        if sender_id not in message_log_logged:
+            message_log_logged.add(sender_id)
+            threading.Thread(
+                target=log_new_lead_to_message_log,
+                args=(sender_id, sender_name),
+                kwargs={"ad_id": ad_id_store.get(sender_id, "")},
+                daemon=True
+            ).start()
+
         notification_feed.appendleft({
             "name": sender_name or "Khách",
             "sender_id": sender_id,
             "text": text,
             "time": int(time.time())
         })
+
+        threading.Thread(
+            target=send_ntfy,
+            args=(sender_id, sender_name or "Khách", text),
+            daemon=True,
+        ).start()
 
         # Escalate check — rule cứng
         if needs_escalate(text):
@@ -1069,6 +1141,13 @@ def process_image(sender_id, image_url, caption=""):
             "time": int(time.time())
         })
 
+        threading.Thread(
+            target=send_ntfy,
+            args=(sender_id, sender_name or "Khách", caption or "Gửi hình ảnh"),
+            kwargs={"is_image": True},
+            daemon=True,
+        ).start()
+
         print(f"[IMG] start sid={sender_id} human={is_human_handling(sender_id)}")
         if is_human_handling(sender_id):
             print(f"[IMG] skip — human mode")
@@ -1238,6 +1317,9 @@ def receive_webhook():
             # Fallback: thử referral object nếu có
             referral = event.get("referral") or postback.get("referral") or {}
             ref = referral.get("ref", "").strip() or postback_payload
+            ad_id_from_referral = referral.get("ad_id", "").strip()
+            if ad_id_from_referral and sender_id not in ad_id_store:
+                ad_id_store[sender_id] = ad_id_from_referral
 
             if ref and sender_id not in ref_store:
                 ref_store[sender_id] = ref
