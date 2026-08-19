@@ -67,6 +67,32 @@ class _HumanModeSet:
     def __iter__(self):
         return iter(self._data)
 
+_MESSAGE_LOG_LOGGED_FILE = Path(__file__).parent / "message_log_logged.json"
+
+class _PersistedSet:
+    """Set backed by a JSON file so it survives server restarts/redeploys."""
+    def __init__(self, path: Path):
+        self._path = path
+        try:
+            self._data = set(_json.loads(path.read_text())) if path.exists() else set()
+        except Exception:
+            self._data = set()
+    def _save(self):
+        try:
+            self._path.write_text(_json.dumps(list(self._data)))
+        except Exception as e:
+            print(f"{self._path.name} save error: {e}")
+    def add(self, sid):
+        self._data.add(sid)
+        self._save()
+    def discard(self, sid):
+        self._data.discard(sid)
+        self._save()
+    def __contains__(self, sid):
+        return sid in self._data
+    def __iter__(self):
+        return iter(self._data)
+
 human_mode = _HumanModeSet()
 
 class _BotSendingProxy:
@@ -107,7 +133,7 @@ LEAD_SHEET_NAME  = "Lead%20Register"
 FB_TRACKING_SHEET_ID = "1n4MA99rflm55JiieyTa102cWnR5nqlBKRPheP42Ywgs"
 FB_MESSAGE_LOG_TAB    = "Facebook%20Message%20Log"
 ad_id_store:       dict[str, str] = {}   # psid -> ad_id từ referral (Click-to-Messenger ad)
-message_log_logged: set = set()          # psid đã được ghi vào Facebook Message Log rồi
+message_log_logged = _PersistedSet(_MESSAGE_LOG_LOGGED_FILE)  # psid đã ghi vào Facebook Message Log rồi
 
 APPOINTMENT_CONFIRM = [
     "Dạ bên em rất vui được đón {pronoun} ạ 🙏",
