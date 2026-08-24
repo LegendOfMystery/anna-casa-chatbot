@@ -397,21 +397,6 @@ def rules_reply(sender_id: str, text: str, pronoun: str) -> bool:
             send_text(sender_id, f"Dạ {pronoun} xem thêm mẫu ghế bar tại: https://annacasavn.com/ghe-bar ạ")
         return True
 
-    # Grandeco Inia
-    if any(k in t for k in ["grandeco", "inia"]):
-        _send_bot(sender_id, f"Dạ bộ sưu tập Grandeco Inia từ Bỉ, {pronoun} xem tại:", "https://annacasavn.com/giay-dan-tuong-grandeco-inia")
-        return True
-
-    # Giấy dán tường
-    if any(k in t for k in ["giấy dán tường", "giay dan tuong", "wallpaper", "giấy dán", "giay dan", "dán tường", "dan tuong"]):
-        _send_bot(sender_id, f"Dạ bên em có nhiều mẫu giấy dán tường ạ, {pronoun} xem tại:", "https://annacasavn.com/giay-dan-tuong")
-        return True
-
-    # Thảm
-    if any(k in t for k in ["thảm", "tham", "carpet", "rug"]):
-        _send_bot(sender_id, f"Dạ bên em có nhiều mẫu thảm đẹp ạ, {pronoun} xem tại:", "https://annacasavn.com/tham")
-        return True
-
     # Địa chỉ / showroom
     if any(k in t for k in ["địa chỉ", "dia chi", "ở đâu", "o dau", "showroom", "cửa hàng", "cua hang", "chỗ nào", "cho nao"]):
         _send_bot(sender_id, "Dạ showroom bên em ở 12 Nguyễn Ư Dĩ, phường An Khánh, TPHCM ạ. Mở cửa 10h sáng đến 7h tối.")
@@ -425,16 +410,6 @@ def rules_reply(sender_id: str, text: str, pronoun: str) -> bool:
     # Ship / giao hàng
     if any(k in t for k in ["ship", "giao hàng", "giao hang", "vận chuyển", "van chuyen", "có ship", "co ship"]):
         _send_bot(sender_id, f"Dạ bên em ship toàn quốc {pronoun} ơi, phí ship tùy khu vực ạ.")
-        return True
-
-    # Zalo
-    if "zalo" in t:
-        _send_bot(sender_id, f"Dạ {pronoun} để lại số Zalo bên em liên hệ lại ngay nha ạ.")
-        return True
-
-    # Giá chung
-    if any(k in t for k in ["giá bao", "gia bao", "bao nhiêu tiền", "bao nhieu tien", "giá thế", "gia the"]):
-        _send_bot(sender_id, f"Dạ {pronoun} hỏi về sản phẩm nào để em báo giá ạ, thảm hay giấy dán tường ạ?")
         return True
 
     return False
@@ -492,13 +467,13 @@ def process_message(sender_id, text):
                     "xin chào", "xin chao", "get started", "bắt đầu", "bat dau"}
         _t = text.strip().lower().rstrip("!. ")
         if _t in _generic or len(_t) <= 4:
-            send_text(sender_id, f"Dạ {pronoun} cần tư vấn sản phẩm gì ạ? Bên em có thảm, giấy dán tường, ghế bar ạ.")
+            send_text(sender_id, f"Dạ {pronoun} cần tư vấn sản phẩm gì ạ? Bên em có ghế bar, ghế Armchair Nook, gương Christine, giường Vela ạ.")
             return
 
         # Rules engine — gửi link/ảnh theo từ khóa
         matched = rules_reply(sender_id, text, pronoun)
         if not matched:
-            send_text(sender_id, f"Dạ {pronoun} cho em biết thêm {pronoun} cần tư vấn sản phẩm gì ạ? Bên em có thảm, giấy dán tường, ghế bar ạ.")
+            send_text(sender_id, f"Dạ {pronoun} cho em biết thêm {pronoun} cần tư vấn sản phẩm gì ạ? Bên em có ghế bar, ghế Armchair Nook, gương Christine, giường Vela ạ.")
 
     except Exception as e:
         print(f"process_message error: {e}")
@@ -530,7 +505,7 @@ def process_image(sender_id, image_url, caption=""):
         if caption and rules_reply(sender_id, caption, pronoun):
             return
 
-        send_text(sender_id, f"Dạ em nhận được hình ạ. {pronoun} đang tìm thảm hay giấy dán tường ạ?")
+        send_text(sender_id, f"Dạ em nhận được hình ạ. {pronoun} cần tư vấn sản phẩm gì ạ?")
 
     except Exception as e:
         print(f"process_image error: {e}")
