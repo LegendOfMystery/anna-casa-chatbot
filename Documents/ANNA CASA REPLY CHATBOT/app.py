@@ -394,7 +394,7 @@ def tondo_reply(sender_id: str, pronoun: str, first_name: str):
         time.sleep(0.5)
     send_text(sender_id, "Dạ tủ đầu giường Tondo bọc da yên ngựa hiện bên em có giá là 11.141.000")
     time.sleep(0.8)
-    send_text(sender_id, "Tondo dáng trụ tròn bọc da yên ngựa, ôm trọn theo đường cong mà không một góc cạnh nào làm gián đoạn. Viền gỗ óc chó chạy dọc theo mép trên, tạo điểm dừng cho mắt trước khi mặt da tiếp tục xuống dưới. Hai ngăn kéo ẩn mình trong khối tròn, không phá vỡ hình dáng tổng thể khi đóng lại. Chất liệu ván gỗ tự nhiên phủ veneer gỗ óc chó nhập khẩu, bọc da yên ngựa cao cấp")
+    send_text(sender_id, "Tondo dáng trụ tròn bọc da yên ngựa, ôm trọn theo đường cong. Viền gỗ óc chó chạy dọc theo mép trên. Hai ngăn kéo ẩn mình trong khối tròn, không phá vỡ hình dáng tổng thể. Chất liệu ván gỗ tự nhiên phủ veneer gỗ óc chó nhập khẩu, bọc da yên ngựa cao cấp")
     time.sleep(0.8)
     send_text(sender_id, "Mình đang dùng bộ giường màu gì để em tư vấn phối màu tủ cho hợp ạ?")
 
