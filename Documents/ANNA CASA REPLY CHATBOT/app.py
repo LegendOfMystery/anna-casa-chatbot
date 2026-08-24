@@ -171,9 +171,10 @@ def send_text(recipient_id, text):
     url = f"https://graph.facebook.com/v18.0/me/messages?access_token={META_PAGE_TOKEN}"
     payload = {"recipient": {"id": recipient_id}, "message": {"text": text}}
     try:
-        requests.post(url, json=payload, timeout=10).raise_for_status()
+        r = requests.post(url, json=payload, timeout=10)
+        r.raise_for_status()
     except Exception as e:
-        print(f"send_text failed: {e}")
+        print(f"send_text failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
 
 
 def get_sender_name(sender_id):
@@ -202,9 +203,10 @@ def send_image(recipient_id, image_url):
         }
     }
     try:
-        requests.post(url, json=payload, timeout=15).raise_for_status()
+        r = requests.post(url, json=payload, timeout=15)
+        r.raise_for_status()
     except Exception as e:
-        print(f"send_image failed: {e}")
+        print(f"send_image failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
 
 def send_file(recipient_id, file_url):
     url = f"https://graph.facebook.com/v18.0/me/messages?access_token={META_PAGE_TOKEN}"
@@ -218,9 +220,10 @@ def send_file(recipient_id, file_url):
         }
     }
     try:
-        requests.post(url, json=payload, timeout=15).raise_for_status()
+        r = requests.post(url, json=payload, timeout=15)
+        r.raise_for_status()
     except Exception as e:
-        print(f"send_file failed: {e}")
+        print(f"send_file failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
 FEMALE_MIDDLE = {"thị", "ngọc", "thùy", "thanh", "thu", "mai", "lan", "hương", "linh", "thi"}
 FEMALE_FIRST  = {"hoa", "lan", "linh", "hương", "trang", "thảo", "ngân", "vy", "ly", "my",
                  "mai", "yến", "vân", "nhung", "loan", "hằng", "nga", "phương", "hiền", "dung",
