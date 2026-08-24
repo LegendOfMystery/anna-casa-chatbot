@@ -359,11 +359,11 @@ def vela_reply(sender_id: str, pronoun: str, first_name: str):
     for img in VELA_IMAGES:
         send_image(sender_id, img)
         time.sleep(0.5)
-    send_text(sender_id, "Dạ giường Vela Modern Luxury hiện bên em có giá là 35.000.000")
+    send_text(sender_id, "Dạ giường Vela Modern Luxury hiện bên em có giá là 35.000.000, áp dụng cho cả 2 size 1m6x2m và 1m8x2m ạ")
     time.sleep(0.8)
-    send_text(sender_id, "Vela do Anna Casa thiết kế và sản xuất tại Việt Nam. Đầu giường có các đường chỉ dọc chạy song song từ trên xuống, tạo chiều sâu thị giác mà không làm phức tạp tổng thể. Hai tay vịn cong ôm nhẹ hai bên đầu giường, vừa là chi tiết thẩm mỹ vừa tạo cảm giác được bao bọc khi nằm. Khung ván MDF, bọc vải màu kem trắng ngà. Kích thước giường là 1800 x 2000 mm")
+    send_text(sender_id, "Vela do Anna Casa thiết kế và sản xuất tại Việt Nam. Đầu giường có các đường chỉ dọc chạy song song từ trên xuống, tạo chiều sâu thị giác mà không làm phức tạp tổng thể. Hai tay vịn cong ôm nhẹ hai bên đầu giường, vừa là chi tiết thẩm mỹ vừa tạo cảm giác được bao bọc khi nằm. Khung ván MDF, bọc vải màu kem trắng ngà")
     time.sleep(0.8)
-    send_text(sender_id, "Mình đang cần giường này cho phòng ngủ diện tích khoảng bao nhiêu ạ?")
+    send_text(sender_id, "Mình đang cần size 1m6x2m hay 1m8x2m ạ?")
 
 
 # ── RULES ENGINE ──────────────────────────────────────────────────────────────
