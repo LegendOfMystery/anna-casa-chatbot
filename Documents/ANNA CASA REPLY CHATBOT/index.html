@@ -30,20 +30,6 @@
 
   .note { font-size: 12px; color: #aaa; line-height: 1.6; margin-top: 0.5rem; }
 
-  .divider { border: none; border-top: 1px solid #f0ede8; margin: 1.5rem 0; }
-
-  .section-title { font-size: 12px; font-weight: 600; color: #aaa; text-transform: uppercase; letter-spacing: 0.08em; text-align: left; margin-bottom: 0.75rem; }
-
-  .customer-list { text-align: left; }
-  .customer-item { display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 0; border-bottom: 1px solid #f5f4f0; }
-  .customer-item:last-child { border-bottom: none; }
-  .customer-name { font-size: 13px; color: #333; }
-  .customer-status { font-size: 11px; color: #D85A30; font-weight: 500; }
-  .reactivate-btn { font-size: 11px; color: #1D9E75; background: none; border: 1px solid #1D9E75; border-radius: 6px; padding: 3px 10px; cursor: pointer; }
-  .reactivate-btn:hover { background: #1D9E75; color: #fff; }
-
-  .empty-customers { font-size: 13px; color: #aaa; text-align: center; padding: 1rem 0; }
-
   .last-updated { font-size: 11px; color: #ccc; margin-top: 1.5rem; }
 </style>
 </head>
@@ -61,26 +47,17 @@
   <button class="toggle-btn" id="toggle-btn" onclick="toggleBot()" disabled>...</button>
   <p class="note" id="note"></p>
 
-  <hr class="divider">
-
-  <div class="section-title">Khách đang do sales phụ trách</div>
-  <div class="customer-list" id="customer-list">
-    <p class="empty-customers">Không có</p>
-  </div>
-
   <div class="last-updated" id="last-updated"></div>
 </div>
 
 <script>
 let botOn = null;
-let humanList = [];
 
 async function fetchStatus() {
   try {
     const res = await fetch('/api/status');
     const data = await res.json();
     botOn = data.bot_enabled;
-    humanList = data.human_mode || [];
     render();
     document.getElementById('last-updated').textContent = 'Cập nhật lúc ' + new Date().toLocaleTimeString('vi-VN');
   } catch(e) {
@@ -107,22 +84,6 @@ function render() {
     btn.textContent = 'Bật bot — Tự động reply';
     note.textContent = 'Bot đang tắt. Nhấn để bật lại khi không có người trực.';
   }
-
-  // Render human list
-  const list = document.getElementById('customer-list');
-  if (humanList.length === 0) {
-    list.innerHTML = '<p class="empty-customers">Không có</p>';
-  } else {
-    list.innerHTML = humanList.map(c => `
-      <div class="customer-item">
-        <div>
-          <div class="customer-name">${c.name || c.id}</div>
-          <div class="customer-status">Sales đang phụ trách</div>
-        </div>
-        <button class="reactivate-btn" onclick="reactivateBot('${c.id}')">Bật bot lại</button>
-      </div>
-    `).join('');
-  }
 }
 
 async function toggleBot() {
@@ -137,19 +98,6 @@ async function toggleBot() {
     alert('Lỗi kết nối');
   } finally {
     btn.disabled = false;
-  }
-}
-
-async function reactivateBot(customerId) {
-  try {
-    await fetch('/api/reactivate', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({customer_id: customerId})
-    });
-    await fetchStatus();
-  } catch(e) {
-    alert('Lỗi');
   }
 }
 

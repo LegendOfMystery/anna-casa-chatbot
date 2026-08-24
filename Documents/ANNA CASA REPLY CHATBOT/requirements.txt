@@ -1,5 +1,4 @@
 flask
-anthropic
 requests
 google-auth
 beautifulsoup4
