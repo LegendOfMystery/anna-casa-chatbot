@@ -51,6 +51,7 @@ gbar_catalog_sent: set = set()
 nook_sent: set = set()
 christine_sent: set = set()
 vela_sent: set = set()
+tondo_sent: set = set()
 
 # ── LEAD TRACKING ─────────────────────────────────────────────────────────────
 ref_store:   dict[str, str] = {}  # psid -> ref code từ ad
@@ -366,6 +367,37 @@ def vela_reply(sender_id: str, pronoun: str, first_name: str):
     send_text(sender_id, "Mình đang cần size 1m6x2m hay 1m8x2m ạ?")
 
 
+# ── TỦ ĐẦU GIƯỜNG TONDO ───────────────────────────────────────────────────────
+TONDO_KEYWORDS = ["tủ đầu giường tondo", "tu dau giuong tondo", "tủ tondo", "tu tondo", "tondo"]
+TONDO_IMAGES = [
+    "https://bizweb.dktcdn.net/100/435/602/products/tudaugiuongbocda-ezgif-com-png-to-webp-converter.webp?v=1787545080943",
+    "https://bizweb.dktcdn.net/100/435/602/products/nanobanana2-denoisethisimage-donotchangeanythingelse-ezgif-com-png-to-webp-converter-1.webp?v=1787545292033",
+    "https://bizweb.dktcdn.net/100/435/602/products/nanobanana2-denoisethisimage-donotchangeanythingelse1-ezgif-com-png-to-webp-converter.webp?v=1787545369163",
+]
+
+def is_tondo_question(text: str) -> bool:
+    t = text.lower()
+    return any(k in t for k in TONDO_KEYWORDS)
+
+def tondo_reply(sender_id: str, pronoun: str, first_name: str):
+    """Flow tư vấn tủ đầu giường Tondo: chào → 3 hình + giá → mô tả → hỏi bộ giường đang dùng."""
+    if sender_id in tondo_sent:
+        send_text(sender_id, f"Dạ {pronoun} xem thêm tủ đầu giường Tondo tại: https://annacasavn.com/tu-dau-giuong-ms03 ạ")
+        return
+    tondo_sent.add(sender_id)
+    name_part = f" {first_name}" if first_name else ""
+    send_text(sender_id, f"Dạ em chào {pronoun}{name_part}, em là Long sẽ hỗ trợ tư vấn mình ngày hôm nay ạ")
+    time.sleep(0.8)
+    for img in TONDO_IMAGES:
+        send_image(sender_id, img)
+        time.sleep(0.5)
+    send_text(sender_id, "Dạ tủ đầu giường Tondo bọc da yên ngựa hiện bên em có giá là 11.141.000")
+    time.sleep(0.8)
+    send_text(sender_id, "Tondo dáng trụ tròn bọc da yên ngựa, ôm trọn theo đường cong mà không một góc cạnh nào làm gián đoạn. Viền gỗ óc chó chạy dọc theo mép trên, tạo điểm dừng cho mắt trước khi mặt da tiếp tục xuống dưới. Hai ngăn kéo ẩn mình trong khối tròn, không phá vỡ hình dáng tổng thể khi đóng lại. Chất liệu ván gỗ tự nhiên phủ veneer gỗ óc chó nhập khẩu, bọc da yên ngựa cao cấp")
+    time.sleep(0.8)
+    send_text(sender_id, "Mình đang dùng bộ giường màu gì để em tư vấn phối màu tủ cho hợp ạ?")
+
+
 # ── RULES ENGINE ──────────────────────────────────────────────────────────────
 def _send_bot(sender_id, *msgs):
     """Gửi một hoặc nhiều tin nhắn liên tiếp."""
@@ -462,18 +494,23 @@ def process_message(sender_id, text):
             vela_reply(sender_id, pronoun, first_name)
             return
 
+        # Tủ đầu giường Tondo — flow tư vấn có sẵn, tự chào khách
+        if is_tondo_question(text):
+            tondo_reply(sender_id, pronoun, first_name)
+            return
+
         # Generic greeting thuần → hỏi nhu cầu, không cần reply thêm
         _generic = {"hi", "hello", "chào", "chao", "hey", "alo", "ơi", "oi",
                     "xin chào", "xin chao", "get started", "bắt đầu", "bat dau"}
         _t = text.strip().lower().rstrip("!. ")
         if _t in _generic or len(_t) <= 4:
-            send_text(sender_id, f"Dạ {pronoun} cần tư vấn sản phẩm gì ạ? Bên em có ghế bar, ghế Armchair Nook, gương Christine, giường Vela ạ.")
+            send_text(sender_id, f"Dạ {pronoun} cần tư vấn sản phẩm gì ạ? Bên em có ghế bar, ghế Armchair Nook, gương Christine, giường Vela, tủ đầu giường Tondo ạ.")
             return
 
         # Rules engine — gửi link/ảnh theo từ khóa
         matched = rules_reply(sender_id, text, pronoun)
         if not matched:
-            send_text(sender_id, f"Dạ {pronoun} cho em biết thêm {pronoun} cần tư vấn sản phẩm gì ạ? Bên em có ghế bar, ghế Armchair Nook, gương Christine, giường Vela ạ.")
+            send_text(sender_id, f"Dạ {pronoun} cho em biết thêm {pronoun} cần tư vấn sản phẩm gì ạ? Bên em có ghế bar, ghế Armchair Nook, gương Christine, giường Vela, tủ đầu giường Tondo ạ.")
 
     except Exception as e:
         print(f"process_message error: {e}")
@@ -499,6 +536,11 @@ def process_image(sender_id, image_url, caption=""):
         # Caption hỏi giường Vela → flow riêng
         if caption and is_vela_question(caption):
             vela_reply(sender_id, pronoun, first_name)
+            return
+
+        # Caption hỏi tủ đầu giường Tondo → flow riêng
+        if caption and is_tondo_question(caption):
+            tondo_reply(sender_id, pronoun, first_name)
             return
 
         # Nếu caption có keywords → rules_reply luôn
