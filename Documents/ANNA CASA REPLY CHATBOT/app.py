@@ -52,6 +52,7 @@ nook_sent: set = set()
 christine_sent: set = set()
 vela_sent: set = set()
 tondo_sent: set = set()
+milo_sent: set = set()
 
 # ── LEAD TRACKING ─────────────────────────────────────────────────────────────
 ref_store:   dict[str, str] = {}  # psid -> ref code từ ad
@@ -398,6 +399,37 @@ def tondo_reply(sender_id: str, pronoun: str, first_name: str):
     send_text(sender_id, "Mình đang dùng bộ giường màu gì để em tư vấn phối màu tủ cho hợp ạ?")
 
 
+# ── TỦ ĐẦU GIƯỜNG MILO ────────────────────────────────────────────────────────
+MILO_KEYWORDS = ["tủ đầu giường milo", "tu dau giuong milo", "tủ milo", "tu milo", "milo"]
+MILO_IMAGES = [
+    "https://bizweb.dktcdn.net/100/435/602/products/1787218313000-2231804115808437945-6876353226804957740-a51cf4a4c71cf3ea2ad8fbbcef020c74-1787218348907.jpg?v=1787218351953",
+    "https://bizweb.dktcdn.net/100/435/602/products/luxury-1.jpg?v=1787296066993",
+    "https://bizweb.dktcdn.net/100/435/602/products/luxury-2.jpg?v=1787297016393",
+]
+
+def is_milo_question(text: str) -> bool:
+    t = text.lower()
+    return any(k in t for k in MILO_KEYWORDS)
+
+def milo_reply(sender_id: str, pronoun: str, first_name: str):
+    """Flow tư vấn tủ đầu giường Milo: chào → 3 hình + giá → mô tả → hỏi phối màu."""
+    if sender_id in milo_sent:
+        send_text(sender_id, f"Dạ {pronoun} xem thêm tủ đầu giường Milo tại: https://annacasavn.com/tu-dau-giuong-luxury ạ")
+        return
+    milo_sent.add(sender_id)
+    name_part = f" {first_name}" if first_name else ""
+    send_text(sender_id, f"Dạ em chào {pronoun}{name_part}, em là Long sẽ hỗ trợ tư vấn mình ngày hôm nay ạ")
+    time.sleep(0.8)
+    for img in MILO_IMAGES:
+        send_image(sender_id, img)
+        time.sleep(0.5)
+    send_text(sender_id, "Dạ tủ đầu giường Milo hiện bên em có giá là 8.391.000")
+    time.sleep(0.8)
+    send_text(sender_id, "Milo dáng vuông vắn, đường nét tối giản nhưng không lạnh, nhờ tay nắm hình vòm bằng đồng nổi bật trên nền trắng lacquer. Chân đế bo tròn nhẹ ở góc, đứng vững mà vẫn nhẹ mắt trong không gian phòng ngủ. Chi tiết đồng ở chân và tay nắm giữ được ánh kim lâu dài, không xỉn màu như các loại hợp kim mạ thường. Chất liệu ván gỗ tự nhiên, ván mật độ cao chuẩn E0")
+    time.sleep(0.8)
+    send_text(sender_id, "Mình đang dùng bộ giường màu gì để em tư vấn phối màu tủ cho hợp ạ?")
+
+
 # ── RULES ENGINE ──────────────────────────────────────────────────────────────
 def _send_bot(sender_id, *msgs):
     """Gửi một hoặc nhiều tin nhắn liên tiếp."""
@@ -499,18 +531,23 @@ def process_message(sender_id, text):
             tondo_reply(sender_id, pronoun, first_name)
             return
 
+        # Tủ đầu giường Milo — flow tư vấn có sẵn, tự chào khách
+        if is_milo_question(text):
+            milo_reply(sender_id, pronoun, first_name)
+            return
+
         # Generic greeting thuần → hỏi nhu cầu, không cần reply thêm
         _generic = {"hi", "hello", "chào", "chao", "hey", "alo", "ơi", "oi",
                     "xin chào", "xin chao", "get started", "bắt đầu", "bat dau"}
         _t = text.strip().lower().rstrip("!. ")
         if _t in _generic or len(_t) <= 4:
-            send_text(sender_id, f"Dạ {pronoun} cần tư vấn sản phẩm gì ạ? Bên em có ghế bar, ghế Armchair Nook, gương Christine, giường Vela, tủ đầu giường Tondo ạ.")
+            send_text(sender_id, f"Dạ {pronoun} cần tư vấn sản phẩm gì ạ? Bên em có ghế bar, ghế Armchair Nook, gương Christine, giường Vela, tủ đầu giường Tondo, tủ đầu giường Milo ạ.")
             return
 
         # Rules engine — gửi link/ảnh theo từ khóa
         matched = rules_reply(sender_id, text, pronoun)
         if not matched:
-            send_text(sender_id, f"Dạ {pronoun} cho em biết thêm {pronoun} cần tư vấn sản phẩm gì ạ? Bên em có ghế bar, ghế Armchair Nook, gương Christine, giường Vela, tủ đầu giường Tondo ạ.")
+            send_text(sender_id, f"Dạ {pronoun} cho em biết thêm {pronoun} cần tư vấn sản phẩm gì ạ? Bên em có ghế bar, ghế Armchair Nook, gương Christine, giường Vela, tủ đầu giường Tondo, tủ đầu giường Milo ạ.")
 
     except Exception as e:
         print(f"process_message error: {e}")
@@ -541,6 +578,11 @@ def process_image(sender_id, image_url, caption=""):
         # Caption hỏi tủ đầu giường Tondo → flow riêng
         if caption and is_tondo_question(caption):
             tondo_reply(sender_id, pronoun, first_name)
+            return
+
+        # Caption hỏi tủ đầu giường Milo → flow riêng
+        if caption and is_milo_question(caption):
+            milo_reply(sender_id, pronoun, first_name)
             return
 
         # Nếu caption có keywords → rules_reply luôn
