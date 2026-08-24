@@ -50,6 +50,7 @@ bot_enabled = True
 gbar_catalog_sent: set = set()
 nook_sent: set = set()
 christine_sent: set = set()
+vela_sent: set = set()
 
 # ── LEAD TRACKING ─────────────────────────────────────────────────────────────
 ref_store:   dict[str, str] = {}  # psid -> ref code từ ad
@@ -333,6 +334,38 @@ def christine_reply(sender_id: str, pronoun: str, first_name: str):
     send_text(sender_id, "Mình đang cần đặt gương ở không gian nào ạ?")
 
 
+# ── GIƯỜNG VELA ────────────────────────────────────────────────────────────────
+VELA_KEYWORDS = ["giường vela", "giuong vela", "vela bed", "vela"]
+VELA_IMAGES = [
+    "https://bizweb.dktcdn.net/100/435/602/products/lay-anh-website-2-6c5b4ef3-d213-41a9-93b8-889b98b09ddf.jpg?v=1787298639387",
+    "https://bizweb.dktcdn.net/100/435/602/products/tieu-de-phu-6.jpg?v=1787298642103",
+    "https://bizweb.dktcdn.net/100/435/602/products/luxury-5.jpg?v=1787298642103",
+    "https://bizweb.dktcdn.net/100/435/602/products/luxury-6.jpg?v=1787298642103",
+]
+
+def is_vela_question(text: str) -> bool:
+    t = text.lower()
+    return any(k in t for k in VELA_KEYWORDS)
+
+def vela_reply(sender_id: str, pronoun: str, first_name: str):
+    """Flow tư vấn giường Vela: chào → 4 hình + giá → mô tả → hỏi phòng ngủ."""
+    if sender_id in vela_sent:
+        send_text(sender_id, f"Dạ {pronoun} xem thêm giường Vela tại: https://annacasavn.com/giuong-luxury-ms-01 ạ")
+        return
+    vela_sent.add(sender_id)
+    name_part = f" {first_name}" if first_name else ""
+    send_text(sender_id, f"Dạ em chào {pronoun}{name_part}, em là Long sẽ hỗ trợ tư vấn mình ngày hôm nay ạ")
+    time.sleep(0.8)
+    for img in VELA_IMAGES:
+        send_image(sender_id, img)
+        time.sleep(0.5)
+    send_text(sender_id, "Dạ giường Vela Modern Luxury hiện bên em có giá là 35.000.000")
+    time.sleep(0.8)
+    send_text(sender_id, "Vela do Anna Casa thiết kế và sản xuất tại Việt Nam. Đầu giường có các đường chỉ dọc chạy song song từ trên xuống, tạo chiều sâu thị giác mà không làm phức tạp tổng thể. Hai tay vịn cong ôm nhẹ hai bên đầu giường, vừa là chi tiết thẩm mỹ vừa tạo cảm giác được bao bọc khi nằm. Khung ván MDF, bọc vải màu kem trắng ngà. Kích thước giường là 1800 x 2000 mm")
+    time.sleep(0.8)
+    send_text(sender_id, "Mình đang cần giường này cho phòng ngủ diện tích khoảng bao nhiêu ạ?")
+
+
 # ── RULES ENGINE ──────────────────────────────────────────────────────────────
 def _send_bot(sender_id, *msgs):
     """Gửi một hoặc nhiều tin nhắn liên tiếp."""
@@ -449,6 +482,11 @@ def process_message(sender_id, text):
             christine_reply(sender_id, pronoun, first_name)
             return
 
+        # Giường Vela — flow tư vấn có sẵn, tự chào khách
+        if is_vela_question(text):
+            vela_reply(sender_id, pronoun, first_name)
+            return
+
         # Generic greeting thuần → hỏi nhu cầu, không cần reply thêm
         _generic = {"hi", "hello", "chào", "chao", "hey", "alo", "ơi", "oi",
                     "xin chào", "xin chao", "get started", "bắt đầu", "bat dau"}
@@ -481,6 +519,11 @@ def process_image(sender_id, image_url, caption=""):
         # Caption hỏi gương Christine → flow riêng
         if caption and is_christine_question(caption):
             christine_reply(sender_id, pronoun, first_name)
+            return
+
+        # Caption hỏi giường Vela → flow riêng
+        if caption and is_vela_question(caption):
+            vela_reply(sender_id, pronoun, first_name)
             return
 
         # Nếu caption có keywords → rules_reply luôn
