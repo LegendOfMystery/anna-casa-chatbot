@@ -49,6 +49,7 @@ class _PersistedSet:
 bot_enabled = True
 gbar_catalog_sent: set = set()
 nook_sent: set = set()
+christine_sent: set = set()
 
 # ── LEAD TRACKING ─────────────────────────────────────────────────────────────
 ref_store:   dict[str, str] = {}  # psid -> ref code từ ad
@@ -301,6 +302,37 @@ def nook_reply(sender_id: str, pronoun: str, first_name: str):
     send_text(sender_id, "Mình đang cần ghế này để ở phòng nào ạ?")
 
 
+# ── GƯƠNG CHRISTINE ───────────────────────────────────────────────────────────
+CHRISTINE_KEYWORDS = ["gương christine", "guong christine", "christine mirror", "christine"]
+CHRISTINE_IMAGES = [
+    "https://bizweb.dktcdn.net/100/435/602/products/1663660475-1756021435289.jpg?v=1756021455503",
+    "https://bizweb.dktcdn.net/100/435/602/products/guong-fiam-2.jpg?v=1769055387680",
+    "https://bizweb.dktcdn.net/100/435/602/products/guong-fiam.jpg?v=1769055387680",
+]
+
+def is_christine_question(text: str) -> bool:
+    t = text.lower()
+    return any(k in t for k in CHRISTINE_KEYWORDS)
+
+def christine_reply(sender_id: str, pronoun: str, first_name: str):
+    """Flow tư vấn gương Christine: chào → 3 hình + giá → mô tả → hỏi không gian."""
+    if sender_id in christine_sent:
+        send_text(sender_id, f"Dạ {pronoun} xem thêm gương Christine tại: https://annacasavn.com/christine-mirror ạ")
+        return
+    christine_sent.add(sender_id)
+    name_part = f" {first_name}" if first_name else ""
+    send_text(sender_id, f"Dạ em chào {pronoun}{name_part}, em là Long sẽ hỗ trợ tư vấn mình ngày hôm nay ạ")
+    time.sleep(0.8)
+    for img in CHRISTINE_IMAGES:
+        send_image(sender_id, img)
+        time.sleep(0.5)
+    send_text(sender_id, "Dạ gương Christine nhập khẩu Ý hiện bên em có giá là 127.148.000")
+    time.sleep(0.8)
+    send_text(sender_id, "Christine thuộc bộ sưu tập của Fiam Italia, do các nhà thiết kế Dante O. Benini, Luca Gonzo cùng nghệ sĩ điêu khắc Helidon Xhixha thực hiện. Chất liệu kính màu khói (fume) tráng bạc mặt sau — bề mặt kính được uốn nóng ở nhiệt độ cao rồi tráng bạc phía sau, tạo ra những đường cong tự nhiên không lặp lại giữa các sản phẩm. Kích thước gương là 110 x 110 x 23 cm")
+    time.sleep(0.8)
+    send_text(sender_id, "Mình đang cần đặt gương ở không gian nào ạ?")
+
+
 # ── RULES ENGINE ──────────────────────────────────────────────────────────────
 def _send_bot(sender_id, *msgs):
     """Gửi một hoặc nhiều tin nhắn liên tiếp."""
@@ -412,6 +444,11 @@ def process_message(sender_id, text):
             nook_reply(sender_id, pronoun, first_name)
             return
 
+        # Gương Christine — flow tư vấn có sẵn, tự chào khách
+        if is_christine_question(text):
+            christine_reply(sender_id, pronoun, first_name)
+            return
+
         # Generic greeting thuần → hỏi nhu cầu, không cần reply thêm
         _generic = {"hi", "hello", "chào", "chao", "hey", "alo", "ơi", "oi",
                     "xin chào", "xin chao", "get started", "bắt đầu", "bat dau"}
@@ -439,6 +476,11 @@ def process_image(sender_id, image_url, caption=""):
         # Caption hỏi Armchair Nook → flow riêng
         if caption and is_nook_question(caption):
             nook_reply(sender_id, pronoun, first_name)
+            return
+
+        # Caption hỏi gương Christine → flow riêng
+        if caption and is_christine_question(caption):
+            christine_reply(sender_id, pronoun, first_name)
             return
 
         # Nếu caption có keywords → rules_reply luôn
