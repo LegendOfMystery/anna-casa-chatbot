@@ -425,7 +425,7 @@ def milo_reply(sender_id: str, pronoun: str, first_name: str):
         time.sleep(0.5)
     send_text(sender_id, "Dạ tủ đầu giường Milo hiện bên em có giá là 8.391.000")
     time.sleep(0.8)
-    send_text(sender_id, "Milo dáng vuông vắn, đường nét tối giản nhưng không lạnh, nhờ tay nắm hình vòm bằng đồng nổi bật trên nền trắng lacquer. Chân đế bo tròn nhẹ ở góc, đứng vững mà vẫn nhẹ mắt trong không gian phòng ngủ. Chi tiết đồng ở chân và tay nắm giữ được ánh kim lâu dài, không xỉn màu như các loại hợp kim mạ thường. Chất liệu ván gỗ tự nhiên, ván mật độ cao chuẩn E0")
+    send_text(sender_id, "Milo dáng vuông vắn, đường nét tối giản, tay nắm hình vòm bằng đồng nổi bật trên nền trắng lacquer. Chân đế bo tròn nhẹ ở góc, đứng vững mà vẫn nhẹ mắt. Chi tiết đồng ở chân và tay nắm giữ được ánh kim lâu dài. Chất liệu ván gỗ tự nhiên, ván mật độ cao chuẩn E0")
     time.sleep(0.8)
     send_text(sender_id, "Mình đang dùng bộ giường màu gì để em tư vấn phối màu tủ cho hợp ạ?")
 
