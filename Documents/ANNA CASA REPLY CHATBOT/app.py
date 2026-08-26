@@ -573,18 +573,8 @@ def process_message(sender_id, text):
             fetale_reply(sender_id, pronoun, first_name)
             return
 
-        # Generic greeting thuần → hỏi nhu cầu, không cần reply thêm
-        _generic = {"hi", "hello", "chào", "chao", "hey", "alo", "ơi", "oi",
-                    "xin chào", "xin chao", "get started", "bắt đầu", "bat dau"}
-        _t = text.strip().lower().rstrip("!. ")
-        if _t in _generic or len(_t) <= 4:
-            send_text(sender_id, f"Dạ {pronoun} cần tư vấn sản phẩm gì ạ? Bên em có ghế bar, ghế Armchair Nook, gương Christine, giường Vela, tủ đầu giường Tondo, tủ đầu giường Milo, sofa Fetale ạ.")
-            return
-
-        # Rules engine — gửi link/ảnh theo từ khóa
-        matched = rules_reply(sender_id, text, pronoun)
-        if not matched:
-            send_text(sender_id, f"Dạ {pronoun} cho em biết thêm {pronoun} cần tư vấn sản phẩm gì ạ? Bên em có ghế bar, ghế Armchair Nook, gương Christine, giường Vela, tủ đầu giường Tondo, tủ đầu giường Milo, sofa Fetale ạ.")
+        # Rules engine — gửi link/ảnh theo từ khóa. Không khớp gì thì im lặng.
+        rules_reply(sender_id, text, pronoun)
 
     except Exception as e:
         print(f"process_message error: {e}")
@@ -627,11 +617,9 @@ def process_image(sender_id, image_url, caption=""):
             fetale_reply(sender_id, pronoun, first_name)
             return
 
-        # Nếu caption có keywords → rules_reply luôn
-        if caption and rules_reply(sender_id, caption, pronoun):
-            return
-
-        send_text(sender_id, f"Dạ em nhận được hình ạ. {pronoun} cần tư vấn sản phẩm gì ạ?")
+        # Nếu caption có keywords → rules_reply. Không khớp gì thì im lặng.
+        if caption:
+            rules_reply(sender_id, caption, pronoun)
 
     except Exception as e:
         print(f"process_image error: {e}")
