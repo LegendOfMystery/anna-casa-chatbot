@@ -53,6 +53,7 @@ christine_sent: set = set()
 vela_sent: set = set()
 tondo_sent: set = set()
 milo_sent: set = set()
+fetale_sent: set = set()
 
 # ── LEAD TRACKING ─────────────────────────────────────────────────────────────
 ref_store:   dict[str, str] = {}  # psid -> ref code từ ad
@@ -430,6 +431,37 @@ def milo_reply(sender_id: str, pronoun: str, first_name: str):
     send_text(sender_id, "Mình đang dùng bộ giường màu gì để em tư vấn phối màu tủ cho hợp ạ?")
 
 
+# ── SOFA FETALE ────────────────────────────────────────────────────────────────
+FETALE_KEYWORDS = ["sofa fetale", "sofa fetal", "fetale"]
+FETALE_IMAGES = [
+    "https://bizweb.dktcdn.net/100/435/602/products/by-sku-gia-goc-10-1755854851818.jpg?v=1755854855360",
+    "https://bizweb.dktcdn.net/100/435/602/products/mis01662-1.jpg?v=1759131449993",
+    "https://bizweb.dktcdn.net/100/435/602/products/mis01656.jpg?v=1759131449993",
+]
+
+def is_fetale_question(text: str) -> bool:
+    t = text.lower()
+    return any(k in t for k in FETALE_KEYWORDS)
+
+def fetale_reply(sender_id: str, pronoun: str, first_name: str):
+    """Flow tư vấn sofa Fetale: chào → 3 hình + giá → mô tả → hỏi không gian phòng khách."""
+    if sender_id in fetale_sent:
+        send_text(sender_id, f"Dạ {pronoun} xem thêm sofa Fetale tại: https://annacasavn.com/sofa-fetale-2230-1010-790-mm-light-gray-beige-fabric-code-meg-031 ạ")
+        return
+    fetale_sent.add(sender_id)
+    name_part = f" {first_name}" if first_name else ""
+    send_text(sender_id, f"Dạ em chào {pronoun}{name_part}, em là Long sẽ hỗ trợ tư vấn mình ngày hôm nay ạ")
+    time.sleep(0.8)
+    for img in FETALE_IMAGES:
+        send_image(sender_id, img)
+        time.sleep(0.5)
+    send_text(sender_id, "Dạ sofa Fetale hiện bên em đang giảm 20%, giá còn 40.545.600 (giá gốc 50.682.000)")
+    time.sleep(0.8)
+    send_text(sender_id, "Fetale thuộc thương hiệu Anna Casa, sản xuất trong nước. Khung kim loại đồng xước bên ngoài, phần tay tựa có đường xếp ly dọc tinh xảo mang dấu ấn cổ điển. Kích thước 2230 x 1010 x 790 mm, màu be trung tính, đệm Polyurethane/lông vũ, vải bọc cao cấp")
+    time.sleep(0.8)
+    send_text(sender_id, "Mình đang cần sofa cho phòng khách diện tích khoảng bao nhiêu ạ?")
+
+
 # ── RULES ENGINE ──────────────────────────────────────────────────────────────
 def _send_bot(sender_id, *msgs):
     """Gửi một hoặc nhiều tin nhắn liên tiếp."""
@@ -536,18 +568,23 @@ def process_message(sender_id, text):
             milo_reply(sender_id, pronoun, first_name)
             return
 
+        # Sofa Fetale — flow tư vấn có sẵn, tự chào khách
+        if is_fetale_question(text):
+            fetale_reply(sender_id, pronoun, first_name)
+            return
+
         # Generic greeting thuần → hỏi nhu cầu, không cần reply thêm
         _generic = {"hi", "hello", "chào", "chao", "hey", "alo", "ơi", "oi",
                     "xin chào", "xin chao", "get started", "bắt đầu", "bat dau"}
         _t = text.strip().lower().rstrip("!. ")
         if _t in _generic or len(_t) <= 4:
-            send_text(sender_id, f"Dạ {pronoun} cần tư vấn sản phẩm gì ạ? Bên em có ghế bar, ghế Armchair Nook, gương Christine, giường Vela, tủ đầu giường Tondo, tủ đầu giường Milo ạ.")
+            send_text(sender_id, f"Dạ {pronoun} cần tư vấn sản phẩm gì ạ? Bên em có ghế bar, ghế Armchair Nook, gương Christine, giường Vela, tủ đầu giường Tondo, tủ đầu giường Milo, sofa Fetale ạ.")
             return
 
         # Rules engine — gửi link/ảnh theo từ khóa
         matched = rules_reply(sender_id, text, pronoun)
         if not matched:
-            send_text(sender_id, f"Dạ {pronoun} cho em biết thêm {pronoun} cần tư vấn sản phẩm gì ạ? Bên em có ghế bar, ghế Armchair Nook, gương Christine, giường Vela, tủ đầu giường Tondo, tủ đầu giường Milo ạ.")
+            send_text(sender_id, f"Dạ {pronoun} cho em biết thêm {pronoun} cần tư vấn sản phẩm gì ạ? Bên em có ghế bar, ghế Armchair Nook, gương Christine, giường Vela, tủ đầu giường Tondo, tủ đầu giường Milo, sofa Fetale ạ.")
 
     except Exception as e:
         print(f"process_message error: {e}")
@@ -583,6 +620,11 @@ def process_image(sender_id, image_url, caption=""):
         # Caption hỏi tủ đầu giường Milo → flow riêng
         if caption and is_milo_question(caption):
             milo_reply(sender_id, pronoun, first_name)
+            return
+
+        # Caption hỏi sofa Fetale → flow riêng
+        if caption and is_fetale_question(caption):
+            fetale_reply(sender_id, pronoun, first_name)
             return
 
         # Nếu caption có keywords → rules_reply luôn
