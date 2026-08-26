@@ -455,7 +455,7 @@ def fetale_reply(sender_id: str, pronoun: str, first_name: str):
     for img in FETALE_IMAGES:
         send_image(sender_id, img)
         time.sleep(0.5)
-    send_text(sender_id, "Dạ sofa Fetale hiện bên em đang giảm 20%, giá còn 40.545.600 (giá gốc 50.682.000)")
+    send_text(sender_id, "Dạ sofa Fetale hiện bên em có giá là 50.682.000")
     time.sleep(0.8)
     send_text(sender_id, "Fetale thuộc thương hiệu Anna Casa, sản xuất trong nước. Khung kim loại đồng xước bên ngoài, phần tay tựa có đường xếp ly dọc tinh xảo mang dấu ấn cổ điển. Kích thước 2230 x 1010 x 790 mm, màu be trung tính, đệm Polyurethane/lông vũ, vải bọc cao cấp")
     time.sleep(0.8)
