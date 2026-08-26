@@ -233,7 +233,7 @@ FEMALE_MIDDLE = {"thị", "ngọc", "thùy", "thanh", "thu", "mai", "lan", "hư�
 FEMALE_FIRST  = {"hoa", "lan", "linh", "hương", "trang", "thảo", "ngân", "vy", "ly", "my",
                  "mai", "yến", "vân", "nhung", "loan", "hằng", "nga", "phương", "hiền", "dung",
                  "trinh", "châu", "nhi", "khánh", "trâm", "tuyền", "quỳnh", "diệu", "thúy",
-                 "hạnh", "lý", "tiên", "xuân", "diễm", "giang", "thư", "bích", "kim", "cúc"}
+                 "hạnh", "lý", "tiên", "xuân", "diễm", "giang", "thư", "bích", "kim", "cúc", "ngọc"}
 MALE_MIDDLE   = {"văn", "hữu", "đức", "công", "quốc", "minh", "trung", "anh", "bá", "gia"}
 MALE_FIRST    = {"hùng", "dũng", "tuấn", "nam", "long", "đức", "thành", "hải", "sơn", "bình",
                  "trung", "khoa", "lâm", "phong", "quân", "khải", "tùng", "cường", "kiên", "đạt",
@@ -271,6 +271,12 @@ def detect_gender(full_name: str) -> str:
         middle = parts[-2]
         if middle in MALE_MIDDLE:   return "anh"
         if middle in FEMALE_MIDDLE: return "chị"
+
+    # Fallback: tên hiển thị kiểu Tây (tên chính đứng đầu, họ đứng cuối)
+    if len(parts) >= 2:
+        last = parts[0]
+        if last in FEMALE_FIRST: return "chị"
+        if last in MALE_FIRST:   return "anh"
 
     return "bạn"
 
