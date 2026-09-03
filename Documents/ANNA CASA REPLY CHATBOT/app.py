@@ -229,6 +229,44 @@ def send_file(recipient_id, file_url):
         r.raise_for_status()
     except Exception as e:
         print(f"send_file failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
+
+
+# Cache attachment_id sau khi upload 1 lần — tránh Facebook phải fetch lại
+# URL Google Drive mỗi lần gửi (hay lỗi do redirect qua domain khác).
+_attachment_id_cache: dict[str, str] = {}
+
+def get_or_upload_attachment_id(key: str, file_url: str) -> str | None:
+    if key in _attachment_id_cache:
+        return _attachment_id_cache[key]
+    url = f"https://graph.facebook.com/v18.0/me/message_attachments?access_token={META_PAGE_TOKEN}"
+    payload = {"message": {"attachment": {"type": "file", "payload": {"url": file_url, "is_reusable": True}}}}
+    try:
+        r = requests.post(url, json=payload, timeout=30)
+        r.raise_for_status()
+        att_id = r.json().get("attachment_id")
+        if att_id:
+            _attachment_id_cache[key] = att_id
+            return att_id
+    except Exception as e:
+        print(f"upload_attachment_id failed for {key}: {e} | body={r.text[:500] if 'r' in dir() else ''}")
+    return None
+
+def send_file_reusable(recipient_id, key: str, file_url: str):
+    """Gửi file qua attachment_id đã cache (upload 1 lần); fallback gửi thẳng URL nếu upload lỗi."""
+    att_id = get_or_upload_attachment_id(key, file_url)
+    if att_id:
+        url = f"https://graph.facebook.com/v18.0/me/messages?access_token={META_PAGE_TOKEN}"
+        payload = {
+            "recipient": {"id": recipient_id},
+            "message": {"attachment": {"type": "file", "payload": {"attachment_id": att_id}}}
+        }
+        try:
+            r = requests.post(url, json=payload, timeout=15)
+            r.raise_for_status()
+            return
+        except Exception as e:
+            print(f"send_file_reusable failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
+    send_file(recipient_id, file_url)
 FEMALE_MIDDLE = {"thị", "ngọc", "thùy", "thanh", "thu", "mai", "lan", "hương", "linh", "thi"}
 FEMALE_FIRST  = {"hoa", "lan", "linh", "hương", "trang", "thảo", "ngân", "vy", "ly", "my",
                  "mai", "yến", "vân", "nhung", "loan", "hằng", "nga", "phương", "hiền", "dung",
@@ -536,9 +574,9 @@ def process_message(sender_id, text):
 
         # Wallpaper catalogue trigger — khớp chính xác nguyên câu
         if text.strip().lower() == "nhận danh sách giấy dán tường":
-            send_file(sender_id, CATALOGUES["wallpaper_1"])
+            send_file_reusable(sender_id, "wallpaper_1", CATALOGUES["wallpaper_1"])
             time.sleep(1)
-            send_file(sender_id, CATALOGUES["wallpaper_2"])
+            send_file_reusable(sender_id, "wallpaper_2", CATALOGUES["wallpaper_2"])
             time.sleep(1)
             send_text(sender_id, "Anna Casa gửi bạn 2 catalog giấy dán tường Arte từ Pháp, nếu bạn cần thêm hình mẫu nào nhân viên tư vấn sẽ hỗ trợ mình nha")
             return
