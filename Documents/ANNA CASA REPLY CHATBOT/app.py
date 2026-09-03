@@ -191,9 +191,11 @@ def get_sender_name(sender_id):
 
 
 # ── CATALOGUES ───────────────────────────────────────────────────────────────
+# Host trực tiếp trên server thay vì dùng link Google Drive — Facebook fetch
+# link Drive hay lỗi silent (bị giới hạn lượt tải / chặn bot fetch).
 CATALOGUES = {
-    "wallpaper_1": "https://drive.google.com/uc?export=download&id=1lcuuGuGpWh7lclBW-Kpxc3VV39cldQes&confirm=t",
-    "wallpaper_2": "https://drive.google.com/uc?export=download&id=1TdGLS_6u2FVCNJMEhL2FhQ5T1_cQ7Xn9&confirm=t",
+    "wallpaper_1": "https://anna-casa-chatbot.onrender.com/catalogs/wallpaper_1.pdf",
+    "wallpaper_2": "https://anna-casa-chatbot.onrender.com/catalogs/wallpaper_2.pdf",
 }
 
 def send_image(recipient_id, image_url):
@@ -791,6 +793,11 @@ def api_toggle():
 @app.route("/")
 def index():
     return send_from_directory(".", "index.html")
+
+
+@app.route("/catalogs/<path:filename>")
+def serve_catalog(filename):
+    return send_from_directory("catalogs", filename)
 
 
 # ── RUN ───────────────────────────────────────────────────────────────────────
