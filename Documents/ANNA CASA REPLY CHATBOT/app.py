@@ -538,15 +538,17 @@ def process_message(sender_id, text):
         WP_TRIGGERS = ["catalogue giấy dán tường", "catalog giấy dán tường",
                        "catalogue giay dan tuong", "catalog giay dan tuong",
                        "nhận catalogue", "nhận catalog",
+                       "nhận danh sách giấy dán tường", "nhan danh sach giay dan tuong",
+                       "danh sách giấy dán tường", "danh sach giay dan tuong",
                        "xin catalog", "xin catalogue", "gửi catalog", "gửi catalogue",
                        "cho xin catalog", "cho xin catalogue",
                        "xem catalog", "xem catalogue"]
         if any(t in text.lower() for t in WP_TRIGGERS):
-            send_text(sender_id, "Dạ em gửi catalog giấy dán tường đang sale ạ.")
-            time.sleep(1)
             send_file(sender_id, CATALOGUES["wallpaper_1"])
             time.sleep(1)
             send_file(sender_id, CATALOGUES["wallpaper_2"])
+            time.sleep(1)
+            send_text(sender_id, "Anna Casa gửi bạn 2 catalog giấy dán tường Arte từ Pháp, nếu bạn cần thêm hình mẫu nào nhân viên tư vấn sẽ hỗ trợ mình nha")
             return
 
         # Armchair Nook — flow tư vấn có sẵn, tự chào khách
