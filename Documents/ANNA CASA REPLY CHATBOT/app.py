@@ -534,16 +534,8 @@ def process_message(sender_id, text):
                 daemon=True
             ).start()
 
-        # Wallpaper catalogue trigger — rule cứng
-        WP_TRIGGERS = ["catalogue giấy dán tường", "catalog giấy dán tường",
-                       "catalogue giay dan tuong", "catalog giay dan tuong",
-                       "nhận catalogue", "nhận catalog",
-                       "nhận danh sách giấy dán tường", "nhan danh sach giay dan tuong",
-                       "danh sách giấy dán tường", "danh sach giay dan tuong",
-                       "xin catalog", "xin catalogue", "gửi catalog", "gửi catalogue",
-                       "cho xin catalog", "cho xin catalogue",
-                       "xem catalog", "xem catalogue"]
-        if any(t in text.lower() for t in WP_TRIGGERS):
+        # Wallpaper catalogue trigger — khớp chính xác nguyên câu
+        if text.strip().lower() == "nhận danh sách giấy dán tường":
             send_file(sender_id, CATALOGUES["wallpaper_1"])
             time.sleep(1)
             send_file(sender_id, CATALOGUES["wallpaper_2"])
