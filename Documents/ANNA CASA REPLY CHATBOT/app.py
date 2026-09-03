@@ -194,8 +194,8 @@ def get_sender_name(sender_id):
 # Host trực tiếp trên server thay vì dùng link Google Drive — Facebook fetch
 # link Drive hay lỗi silent (bị giới hạn lượt tải / chặn bot fetch).
 CATALOGUES = {
-    "wallpaper_1": "https://anna-casa-chatbot.onrender.com/catalogs/wallpaper_1.pdf",
-    "wallpaper_2": "https://anna-casa-chatbot.onrender.com/catalogs/wallpaper_2.pdf",
+    "wallpaper_1": "https://anna-casa-chatbot.onrender.com/catalogs/Gi%E1%BA%A5y%20d%C3%A1n%20t%C6%B0%E1%BB%9Dng%20C%E1%BB%95%20%C4%91i%E1%BB%83n%20SALEOFF.pdf",
+    "wallpaper_2": "https://anna-casa-chatbot.onrender.com/catalogs/Gi%E1%BA%A5y%20d%C3%A1n%20t%C6%B0%E1%BB%9Dng%20Hi%E1%BB%87n%20%C4%91%E1%BA%A1i%20SALEOFF.pdf",
 }
 
 def send_image(recipient_id, image_url):
