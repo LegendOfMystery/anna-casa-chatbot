@@ -197,6 +197,14 @@ def log_message(psid: str, direction: str, body: str, mid: str = None, created_a
 def get_customers():
     return supabase_request("GET", "customers", params={"order": "last_contact_at.desc", "limit": "300"}) or []
 
+def get_conversations(search: str = ""):
+    """Danh sách hội thoại kèm preview tin nhắn cuối — đọc từ view crm_conversations."""
+    params = {"order": "last_message_at.desc.nullslast", "limit": "500"}
+    if search:
+        params["name"] = f"ilike.*{search}*"
+    data = supabase_request("GET", "crm_conversations", params=params)
+    return data or []
+
 def get_customer(psid: str):
     data = supabase_request("GET", "customers", params={"psid": f"eq.{psid}", "limit": "1"})
     return data[0] if data else {"psid": psid, "name": "", "ad_id": "", "ref_code": ""}
@@ -972,34 +980,108 @@ button:hover { background: #333; }
 </div>
 </body></html>"""
 
-CRM_DASHBOARD_HTML = """<!DOCTYPE html>
-<html lang="vi"><head><meta charset="UTF-8"><title>Anna Casa CRM</title>
+CRM_INBOX_HTML = """<!DOCTYPE html>
+<html lang="vi"><head><meta charset="UTF-8">
+<title>{{ customer.name if customer else 'Anna Casa CRM' }}</title>
 <style>""" + _CRM_STYLE + """
-body { padding: 2rem; }
-.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
-.logo { font-size: 13px; font-weight: 600; letter-spacing: 0.12em; color: #888; text-transform: uppercase; }
-.logout { font-size: 13px; color: #888; text-decoration: none; }
-table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid #e8e6e0; }
-th, td { text-align: left; padding: 0.75rem 1rem; font-size: 14px; border-bottom: 1px solid #f0ede8; }
-th { color: #aaa; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
-tr:last-child td { border-bottom: none; }
-tr:hover { background: #faf9f6; }
-a.row-link { color: #1a1a1a; text-decoration: none; }
-.empty { color: #aaa; text-align: center; padding: 2rem; background: #fff; border-radius: 12px; border: 1px solid #e8e6e0; }
-.toolbar { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 1rem; }
-.sync-btn { padding: 0.5rem 1rem; border: 1px solid #e0ddd5; border-radius: 8px; background: #fff; font-size: 13px; font-weight: 600; cursor: pointer; }
-.sync-btn:hover { background: #f5f4f0; }
-.sync-status { font-size: 12px; color: #888; }
+html, body { height: 100%; overflow: hidden; }
+.app { display: flex; height: 100vh; }
+
+/* ── Sidebar ── */
+.sidebar { width: 340px; flex-shrink: 0; background: #fff; border-right: 1px solid #e8e6e0; display: flex; flex-direction: column; }
+.sidebar-head { padding: 1rem 1.2rem 0.75rem; border-bottom: 1px solid #f0ede8; }
+.logo { font-size: 13px; font-weight: 600; letter-spacing: 0.1em; color: #888; text-transform: uppercase; margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center; }
+.logo a { color: #888; text-decoration: none; font-size: 11px; font-weight: 500; text-transform: none; letter-spacing: 0; }
+.search-box { width: 100%; padding: 0.55rem 0.8rem; border: 1px solid #e0ddd5; border-radius: 8px; font-size: 13px; margin-bottom: 0.6rem; }
+.sync-row { display: flex; align-items: center; gap: 0.5rem; }
+.sync-btn { padding: 0.35rem 0.7rem; border: 1px solid #e0ddd5; border-radius: 7px; background: #fafaf8; font-size: 12px; font-weight: 600; cursor: pointer; }
+.sync-btn:hover { background: #f0ede8; }
+.sync-status { font-size: 11px; color: #999; }
+.conv-list { flex: 1; overflow-y: auto; }
+.conv-item { display: flex; gap: 0.7rem; padding: 0.75rem 1.2rem; text-decoration: none; color: inherit; border-bottom: 1px solid #f5f4f0; }
+.conv-item:hover { background: #faf9f6; }
+.conv-item.active { background: #eef7f3; }
+.avatar { width: 38px; height: 38px; border-radius: 50%; background: #e0ddd5; color: #6b6b6b; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; flex-shrink: 0; }
+.conv-main { min-width: 0; flex: 1; }
+.conv-top { display: flex; justify-content: space-between; gap: 0.5rem; }
+.conv-name { font-size: 13.5px; font-weight: 600; color: #1a1a1a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conv-time { font-size: 11px; color: #aaa; flex-shrink: 0; }
+.conv-preview { font-size: 12.5px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.conv-empty { padding: 2rem 1.2rem; color: #aaa; font-size: 13px; text-align: center; }
+
+/* ── Main pane ── */
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.main-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #bbb; font-size: 14px; }
+.thread-header { background: #fff; border-bottom: 1px solid #e8e6e0; padding: 0.9rem 1.5rem; display: flex; justify-content: space-between; align-items: center; }
+.thread-header .name { font-weight: 600; font-size: 15px; }
+.thread-header .meta { font-size: 12px; color: #aaa; margin-top: 1px; }
+.thread-header a { font-size: 12px; color: #888; text-decoration: none; }
+.thread { flex: 1; padding: 1.5rem; overflow-y: auto; }
+.bubble { max-width: 65%; padding: 0.65rem 1rem; border-radius: 14px; margin-bottom: 0.2rem; font-size: 14px; line-height: 1.4; white-space: pre-wrap; word-wrap: break-word; }
+.in { background: #fff; border: 1px solid #e8e6e0; margin-right: auto; }
+.out { background: #1D9E75; color: #fff; margin-left: auto; }
+.time { font-size: 10px; color: #bbb; margin: 0 4px 10px; }
+.reply-box { background: #fff; border-top: 1px solid #e8e6e0; padding: 1rem 1.5rem; display: flex; gap: 0.5rem; }
+.reply-box textarea { flex: 1; border: 1px solid #e0ddd5; border-radius: 10px; padding: 0.7rem; font-size: 14px; resize: none; font-family: inherit; }
+.reply-box button { padding: 0 1.5rem; border: none; border-radius: 10px; background: #1a1a1a; color: #fff; font-weight: 600; cursor: pointer; }
 </style></head><body>
-<div class="header">
-  <div class="logo">Anna Casa CRM — {{ customers|length }} khách</div>
-  <a class="logout" href="/crm/logout">Đăng xuất</a>
-</div>
-<div class="toolbar">
-  <form method="POST" action="/crm/backfill" onsubmit="return confirm('Kéo lịch sử hội thoại cũ từ Facebook về? Có thể mất vài phút.')">
-    <button class="sync-btn" type="submit">↻ Đồng bộ hội thoại cũ</button>
-  </form>
-  <span class="sync-status" id="sync-status"></span>
+<div class="app">
+  <div class="sidebar">
+    <div class="sidebar-head">
+      <div class="logo">Anna Casa CRM<a href="/crm/logout">Đăng xuất</a></div>
+      <form method="GET" action="/crm">
+        <input class="search-box" type="text" name="q" value="{{ search }}" placeholder="Tìm khách theo tên...">
+      </form>
+      <div class="sync-row">
+        <form method="POST" action="/crm/backfill" onsubmit="return confirm('Kéo lịch sử hội thoại cũ từ Facebook về? Có thể mất vài phút.')">
+          <button class="sync-btn" type="submit">↻ Đồng bộ hội thoại cũ</button>
+        </form>
+        <span class="sync-status" id="sync-status"></span>
+      </div>
+    </div>
+    <div class="conv-list">
+      {% if conversations %}
+        {% for c in conversations %}
+        <a class="conv-item {{ 'active' if c.psid == active_psid else '' }}" href="/crm/customer/{{ c.psid }}">
+          <div class="avatar">{{ (c.name or '?')[0]|upper }}</div>
+          <div class="conv-main">
+            <div class="conv-top">
+              <span class="conv-name">{{ c.name or 'Khách' }}</span>
+              <span class="conv-time">{{ (c.last_message_at or c.last_contact_at or '')[5:10] }}</span>
+            </div>
+            <div class="conv-preview">{{ '↩ ' if c.last_message_direction == 'out' else '' }}{{ c.last_message_body or '' }}</div>
+          </div>
+        </a>
+        {% endfor %}
+      {% else %}
+        <div class="conv-empty">Chưa có hội thoại nào</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="main">
+    {% if customer %}
+    <div class="thread-header">
+      <div>
+        <div class="name">{{ customer.name or 'Khách' }}</div>
+        <div class="meta">Ad ID: {{ customer.ad_id or '—' }} · Ref: {{ customer.ref_code or '—' }}</div>
+      </div>
+    </div>
+    <div class="thread" id="thread">
+      {% for m in messages %}
+      <div class="bubble {{ 'out' if m.direction == 'out' else 'in' }}">{{ m.body }}</div>
+      <div class="time" style="text-align: {{ 'right' if m.direction == 'out' else 'left' }}">{{ m.created_at[:16].replace('T',' ') if m.created_at else '' }}</div>
+      {% endfor %}
+    </div>
+    <form class="reply-box" method="POST" action="/crm/customer/{{ active_psid }}/reply">
+      <textarea name="text" rows="2" placeholder="Nhắn tin cho khách..." required></textarea>
+      <button type="submit">Gửi</button>
+    </form>
+    <script>document.getElementById('thread').scrollTop = document.getElementById('thread').scrollHeight;</script>
+    {% else %}
+    <div class="main-empty">Chọn 1 hội thoại bên trái để xem</div>
+    {% endif %}
+  </div>
 </div>
 <script>
 async function pollBackfill() {
@@ -1011,65 +1093,12 @@ async function pollBackfill() {
       el.textContent = `Đang đồng bộ... ${data.conversations} hội thoại, ${data.messages} tin nhắn`;
       setTimeout(pollBackfill, 3000);
     } else if (data.done && data.conversations > 0) {
-      el.textContent = data.error ? `Lỗi: ${data.error}` : `Đã đồng bộ xong ${data.conversations} hội thoại, ${data.messages} tin nhắn — reload trang để xem`;
+      el.textContent = data.error ? `Lỗi: ${data.error}` : `Xong ${data.conversations} hội thoại — reload để xem`;
     }
   } catch (e) {}
 }
 pollBackfill();
 </script>
-{% if customers %}
-<table>
-  <tr><th>Tên</th><th>Ad ID</th><th>Ref</th><th>Liên hệ cuối</th><th></th></tr>
-  {% for c in customers %}
-  <tr>
-    <td>{{ c.name or 'Khách' }}</td>
-    <td>{{ c.ad_id or '—' }}</td>
-    <td>{{ c.ref_code or '—' }}</td>
-    <td>{{ c.last_contact_at[:16].replace('T',' ') if c.last_contact_at else '—' }}</td>
-    <td><a class="row-link" href="/crm/customer/{{ c.psid }}">Xem hội thoại →</a></td>
-  </tr>
-  {% endfor %}
-</table>
-{% else %}
-<div class="empty">Chưa có khách nào</div>
-{% endif %}
-</body></html>"""
-
-CRM_THREAD_HTML = """<!DOCTYPE html>
-<html lang="vi"><head><meta charset="UTF-8"><title>{{ customer.name or 'Khách' }} — Anna Casa CRM</title>
-<style>""" + _CRM_STYLE + """
-body { min-height: 100vh; display: flex; flex-direction: column; }
-.header { background: #fff; border-bottom: 1px solid #e8e6e0; padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center; }
-.back { font-size: 13px; color: #888; text-decoration: none; }
-.name { font-weight: 600; font-size: 15px; text-align: center; }
-.meta { font-size: 12px; color: #aaa; text-align: center; }
-.thread { flex: 1; padding: 1.5rem; overflow-y: auto; max-width: 700px; margin: 0 auto; width: 100%; }
-.bubble { max-width: 70%; padding: 0.7rem 1rem; border-radius: 14px; margin-bottom: 0.2rem; font-size: 14px; line-height: 1.4; white-space: pre-wrap; }
-.in { background: #fff; border: 1px solid #e8e6e0; margin-right: auto; }
-.out { background: #1D9E75; color: #fff; margin-left: auto; }
-.time { font-size: 10px; color: #bbb; margin: 0 4px 10px; }
-.reply-box { background: #fff; border-top: 1px solid #e8e6e0; padding: 1rem 1.5rem; display: flex; gap: 0.5rem; max-width: 700px; margin: 0 auto; width: 100%; }
-.reply-box textarea { flex: 1; border: 1px solid #e0ddd5; border-radius: 10px; padding: 0.7rem; font-size: 14px; resize: none; font-family: inherit; }
-.reply-box button { padding: 0 1.5rem; border: none; border-radius: 10px; background: #1a1a1a; color: #fff; font-weight: 600; cursor: pointer; }
-</style></head><body>
-<div class="header">
-  <a class="back" href="/crm">← Tất cả khách</a>
-  <div>
-    <div class="name">{{ customer.name or 'Khách' }}</div>
-    <div class="meta">Ad ID: {{ customer.ad_id or '—' }} · Ref: {{ customer.ref_code or '—' }}</div>
-  </div>
-  <a class="back" href="/crm/logout">Đăng xuất</a>
-</div>
-<div class="thread">
-  {% for m in messages %}
-  <div class="bubble {{ 'out' if m.direction == 'out' else 'in' }}">{{ m.body }}</div>
-  <div class="time" style="text-align: {{ 'right' if m.direction == 'out' else 'left' }}">{{ m.created_at[:16].replace('T',' ') if m.created_at else '' }}</div>
-  {% endfor %}
-</div>
-<form class="reply-box" method="POST" action="/crm/customer/{{ psid }}/reply">
-  <textarea name="text" rows="2" placeholder="Nhắn tin cho khách..." required></textarea>
-  <button type="submit">Gửi</button>
-</form>
 </body></html>"""
 
 @app.route("/crm/login", methods=["GET", "POST"])
@@ -1079,7 +1108,7 @@ def crm_login():
         pw = request.form.get("password", "")
         if CRM_PASSWORD and pw == CRM_PASSWORD:
             session["crm_logged_in"] = True
-            return redirect(url_for("crm_dashboard"))
+            return redirect(url_for("crm_inbox"))
         error = "Sai mật khẩu"
     return render_template_string(CRM_LOGIN_HTML, error=error)
 
@@ -1088,29 +1117,31 @@ def crm_logout():
     session.pop("crm_logged_in", None)
     return redirect(url_for("crm_login"))
 
-@app.route("/crm")
+@app.route("/crm", defaults={"psid": None})
+@app.route("/crm/customer/<psid>")
 @crm_login_required
-def crm_dashboard():
-    return render_template_string(CRM_DASHBOARD_HTML, customers=get_customers())
+def crm_inbox(psid):
+    search = request.args.get("q", "").strip()
+    return render_template_string(
+        CRM_INBOX_HTML,
+        conversations=get_conversations(search),
+        search=search,
+        active_psid=psid,
+        customer=get_customer(psid) if psid else None,
+        messages=get_messages(psid) if psid else [],
+    )
 
 @app.route("/crm/backfill", methods=["POST"])
 @crm_login_required
 def crm_backfill():
     if not _backfill_status["running"]:
         threading.Thread(target=backfill_facebook_conversations, daemon=True).start()
-    return redirect(url_for("crm_dashboard"))
+    return redirect(url_for("crm_inbox"))
 
 @app.route("/crm/backfill/status")
 @crm_login_required
 def crm_backfill_status():
     return jsonify(_backfill_status)
-
-@app.route("/crm/customer/<psid>")
-@crm_login_required
-def crm_thread(psid):
-    return render_template_string(
-        CRM_THREAD_HTML, customer=get_customer(psid), messages=get_messages(psid), psid=psid
-    )
 
 @app.route("/crm/customer/<psid>/reply", methods=["POST"])
 @crm_login_required
@@ -1118,7 +1149,7 @@ def crm_reply(psid):
     text = request.form.get("text", "").strip()
     if text:
         send_text(psid, text)
-    return redirect(url_for("crm_thread", psid=psid))
+    return redirect(url_for("crm_inbox", psid=psid))
 
 
 # ── SERVE WEB ─────────────────────────────────────────────────────────────────
