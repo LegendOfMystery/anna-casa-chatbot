@@ -8,15 +8,21 @@ import os
 import time
 import threading
 import requests
+from datetime import datetime, timezone
+from functools import wraps
 from pathlib import Path
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, session, redirect, url_for, render_template_string
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(24)
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 META_PAGE_TOKEN     = os.environ["META_PAGE_TOKEN"]
 META_VERIFY_TOKEN   = os.environ["META_VERIFY_TOKEN"]
 SHEET_ID            = os.environ["SHEET_ID"]
+SUPABASE_URL         = os.environ.get("SUPABASE_URL", "")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+CRM_PASSWORD         = os.environ.get("CRM_PASSWORD", "")
 
 
 # ── IN-MEMORY STORE ───────────────────────────────────────────────────────────
@@ -136,6 +142,58 @@ def sheets_post(url_path: str, payload: dict, sheet_id: str = None) -> bool:
         print(f"[SHEETS POST ERROR] {e}")
         return False
 
+
+# ── SUPABASE (mini CRM: khách hàng + lịch sử hội thoại) ────────────────────────
+def supabase_request(method: str, path: str, json_body: dict = None, params: dict = None, extra_headers: dict = None):
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return None
+    url = f"{SUPABASE_URL}/rest/v1/{path}"
+    headers = {
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Content-Type": "application/json",
+    }
+    if extra_headers:
+        headers.update(extra_headers)
+    try:
+        r = requests.request(method, url, headers=headers, json=json_body, params=params, timeout=10)
+        r.raise_for_status()
+        return r.json() if r.text else None
+    except Exception as e:
+        print(f"[SUPABASE] {method} {path} failed: {e}")
+        return None
+
+def upsert_customer(psid: str, **fields):
+    body = {"psid": psid, "last_contact_at": datetime.now(timezone.utc).isoformat()}
+    for k, v in fields.items():
+        if v:
+            body[k] = v
+    supabase_request(
+        "POST", "customers",
+        json_body=body,
+        params={"on_conflict": "psid"},
+        extra_headers={"Prefer": "resolution=merge-duplicates,return=minimal"}
+    )
+
+def log_message(psid: str, direction: str, body: str):
+    if not body:
+        return
+    supabase_request("POST", "messages", json_body={
+        "psid": psid, "direction": direction, "body": body,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+
+def get_customers():
+    return supabase_request("GET", "customers", params={"order": "last_contact_at.desc", "limit": "300"}) or []
+
+def get_customer(psid: str):
+    data = supabase_request("GET", "customers", params={"psid": f"eq.{psid}", "limit": "1"})
+    return data[0] if data else {"psid": psid, "name": "", "ad_id": "", "ref_code": ""}
+
+def get_messages(psid: str):
+    return supabase_request("GET", "messages", params={"psid": f"eq.{psid}", "order": "created_at.asc"}) or []
+
+
 # ── PRODUCT CATALOG ───────────────────────────────────────────────────────────
 import json as _json
 
@@ -178,6 +236,7 @@ def send_text(recipient_id, text):
     try:
         r = requests.post(url, json=payload, timeout=10)
         r.raise_for_status()
+        threading.Thread(target=log_message, args=(recipient_id, "out", text), daemon=True).start()
     except Exception as e:
         print(f"send_text failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
 
@@ -212,6 +271,7 @@ def send_image(recipient_id, image_url):
     try:
         r = requests.post(url, json=payload, timeout=15)
         r.raise_for_status()
+        threading.Thread(target=log_message, args=(recipient_id, "out", f"[Hình ảnh] {image_url}"), daemon=True).start()
     except Exception as e:
         print(f"send_image failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
 
@@ -229,6 +289,7 @@ def send_file(recipient_id, file_url):
     try:
         r = requests.post(url, json=payload, timeout=15)
         r.raise_for_status()
+        threading.Thread(target=log_message, args=(recipient_id, "out", f"[File] {file_url}"), daemon=True).start()
     except Exception as e:
         print(f"send_file failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
 
@@ -265,6 +326,7 @@ def send_file_reusable(recipient_id, key: str, file_url: str):
         try:
             r = requests.post(url, json=payload, timeout=15)
             r.raise_for_status()
+            threading.Thread(target=log_message, args=(recipient_id, "out", f"[File] {file_url}"), daemon=True).start()
             return
         except Exception as e:
             print(f"send_file_reusable failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
@@ -565,6 +627,9 @@ def process_message(sender_id, text):
         pronoun = detect_gender(sender_name)
         print(f"[MSG] name='{sender_name}' pronoun='{pronoun}'")
 
+        threading.Thread(target=upsert_customer, args=(sender_id,), kwargs={"name": sender_name}, daemon=True).start()
+        threading.Thread(target=log_message, args=(sender_id, "in", text), daemon=True).start()
+
         if sender_id not in message_log_logged:
             message_log_logged.add(sender_id)
             threading.Thread(
@@ -626,6 +691,9 @@ def process_image(sender_id, image_url, caption=""):
         sender_name = get_sender_name(sender_id)
         first_name = sender_name.split()[-1] if sender_name else ""
         pronoun = detect_gender(sender_name)
+
+        threading.Thread(target=upsert_customer, args=(sender_id,), kwargs={"name": sender_name}, daemon=True).start()
+        threading.Thread(target=log_message, args=(sender_id, "in", f"[Khách gửi hình] {caption}" if caption else "[Khách gửi hình]"), daemon=True).start()
 
         # Caption hỏi Armchair Nook → flow riêng
         if caption and is_nook_question(caption):
@@ -711,10 +779,12 @@ def receive_webhook():
             ad_id_from_referral = referral.get("ad_id", "").strip()
             if ad_id_from_referral and sender_id not in ad_id_store:
                 ad_id_store[sender_id] = ad_id_from_referral
+                threading.Thread(target=upsert_customer, args=(sender_id,), kwargs={"ad_id": ad_id_from_referral}, daemon=True).start()
 
             if ref and sender_id not in ref_store:
                 ref_store[sender_id] = ref
                 sender_name = get_sender_name(sender_id)
+                threading.Thread(target=upsert_customer, args=(sender_id,), kwargs={"ref_code": ref, "name": sender_name}, daemon=True).start()
                 threading.Thread(
                     target=log_lead_to_sheet,
                     args=(sender_id, ref),
@@ -787,6 +857,152 @@ def api_toggle():
     bot_enabled = not bot_enabled
     print(f"[TOGGLE] Bot {'enabled' if bot_enabled else 'disabled'}")
     return jsonify({"bot_enabled": bot_enabled})
+
+
+# ── MINI CRM ──────────────────────────────────────────────────────────────────
+def crm_login_required(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not session.get("crm_logged_in"):
+            return redirect(url_for("crm_login"))
+        return f(*args, **kwargs)
+    return wrapper
+
+_CRM_STYLE = """
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f4f0; }
+"""
+
+CRM_LOGIN_HTML = """<!DOCTYPE html>
+<html lang="vi"><head><meta charset="UTF-8"><title>Anna Casa CRM — Đăng nhập</title>
+<style>""" + _CRM_STYLE + """
+body { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+.card { background: #fff; border-radius: 16px; border: 1px solid #e8e6e0; padding: 2.5rem; width: 100%; max-width: 360px; text-align: center; }
+.logo { font-size: 13px; font-weight: 600; letter-spacing: 0.12em; color: #888; text-transform: uppercase; margin-bottom: 1.5rem; }
+input { width: 100%; padding: 0.85rem 1rem; border: 1px solid #e0ddd5; border-radius: 10px; font-size: 15px; margin-bottom: 1rem; }
+button { width: 100%; padding: 0.85rem; border: none; border-radius: 10px; background: #1a1a1a; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; }
+button:hover { background: #333; }
+.error { color: #D85A30; font-size: 13px; margin-bottom: 1rem; }
+</style></head><body>
+<div class="card">
+  <div class="logo">Anna Casa CRM</div>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form method="POST">
+    <input type="password" name="password" placeholder="Mật khẩu" autofocus required>
+    <button type="submit">Đăng nhập</button>
+  </form>
+</div>
+</body></html>"""
+
+CRM_DASHBOARD_HTML = """<!DOCTYPE html>
+<html lang="vi"><head><meta charset="UTF-8"><title>Anna Casa CRM</title>
+<style>""" + _CRM_STYLE + """
+body { padding: 2rem; }
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+.logo { font-size: 13px; font-weight: 600; letter-spacing: 0.12em; color: #888; text-transform: uppercase; }
+.logout { font-size: 13px; color: #888; text-decoration: none; }
+table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid #e8e6e0; }
+th, td { text-align: left; padding: 0.75rem 1rem; font-size: 14px; border-bottom: 1px solid #f0ede8; }
+th { color: #aaa; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+tr:last-child td { border-bottom: none; }
+tr:hover { background: #faf9f6; }
+a.row-link { color: #1a1a1a; text-decoration: none; }
+.empty { color: #aaa; text-align: center; padding: 2rem; background: #fff; border-radius: 12px; border: 1px solid #e8e6e0; }
+</style></head><body>
+<div class="header">
+  <div class="logo">Anna Casa CRM — {{ customers|length }} khách</div>
+  <a class="logout" href="/crm/logout">Đăng xuất</a>
+</div>
+{% if customers %}
+<table>
+  <tr><th>Tên</th><th>Ad ID</th><th>Ref</th><th>Liên hệ cuối</th><th></th></tr>
+  {% for c in customers %}
+  <tr>
+    <td>{{ c.name or 'Khách' }}</td>
+    <td>{{ c.ad_id or '—' }}</td>
+    <td>{{ c.ref_code or '—' }}</td>
+    <td>{{ c.last_contact_at[:16].replace('T',' ') if c.last_contact_at else '—' }}</td>
+    <td><a class="row-link" href="/crm/customer/{{ c.psid }}">Xem hội thoại →</a></td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<div class="empty">Chưa có khách nào</div>
+{% endif %}
+</body></html>"""
+
+CRM_THREAD_HTML = """<!DOCTYPE html>
+<html lang="vi"><head><meta charset="UTF-8"><title>{{ customer.name or 'Khách' }} — Anna Casa CRM</title>
+<style>""" + _CRM_STYLE + """
+body { min-height: 100vh; display: flex; flex-direction: column; }
+.header { background: #fff; border-bottom: 1px solid #e8e6e0; padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center; }
+.back { font-size: 13px; color: #888; text-decoration: none; }
+.name { font-weight: 600; font-size: 15px; text-align: center; }
+.meta { font-size: 12px; color: #aaa; text-align: center; }
+.thread { flex: 1; padding: 1.5rem; overflow-y: auto; max-width: 700px; margin: 0 auto; width: 100%; }
+.bubble { max-width: 70%; padding: 0.7rem 1rem; border-radius: 14px; margin-bottom: 0.2rem; font-size: 14px; line-height: 1.4; white-space: pre-wrap; }
+.in { background: #fff; border: 1px solid #e8e6e0; margin-right: auto; }
+.out { background: #1D9E75; color: #fff; margin-left: auto; }
+.time { font-size: 10px; color: #bbb; margin: 0 4px 10px; }
+.reply-box { background: #fff; border-top: 1px solid #e8e6e0; padding: 1rem 1.5rem; display: flex; gap: 0.5rem; max-width: 700px; margin: 0 auto; width: 100%; }
+.reply-box textarea { flex: 1; border: 1px solid #e0ddd5; border-radius: 10px; padding: 0.7rem; font-size: 14px; resize: none; font-family: inherit; }
+.reply-box button { padding: 0 1.5rem; border: none; border-radius: 10px; background: #1a1a1a; color: #fff; font-weight: 600; cursor: pointer; }
+</style></head><body>
+<div class="header">
+  <a class="back" href="/crm">← Tất cả khách</a>
+  <div>
+    <div class="name">{{ customer.name or 'Khách' }}</div>
+    <div class="meta">Ad ID: {{ customer.ad_id or '—' }} · Ref: {{ customer.ref_code or '—' }}</div>
+  </div>
+  <a class="back" href="/crm/logout">Đăng xuất</a>
+</div>
+<div class="thread">
+  {% for m in messages %}
+  <div class="bubble {{ 'out' if m.direction == 'out' else 'in' }}">{{ m.body }}</div>
+  <div class="time" style="text-align: {{ 'right' if m.direction == 'out' else 'left' }}">{{ m.created_at[:16].replace('T',' ') if m.created_at else '' }}</div>
+  {% endfor %}
+</div>
+<form class="reply-box" method="POST" action="/crm/customer/{{ psid }}/reply">
+  <textarea name="text" rows="2" placeholder="Nhắn tin cho khách..." required></textarea>
+  <button type="submit">Gửi</button>
+</form>
+</body></html>"""
+
+@app.route("/crm/login", methods=["GET", "POST"])
+def crm_login():
+    error = ""
+    if request.method == "POST":
+        pw = request.form.get("password", "")
+        if CRM_PASSWORD and pw == CRM_PASSWORD:
+            session["crm_logged_in"] = True
+            return redirect(url_for("crm_dashboard"))
+        error = "Sai mật khẩu"
+    return render_template_string(CRM_LOGIN_HTML, error=error)
+
+@app.route("/crm/logout")
+def crm_logout():
+    session.pop("crm_logged_in", None)
+    return redirect(url_for("crm_login"))
+
+@app.route("/crm")
+@crm_login_required
+def crm_dashboard():
+    return render_template_string(CRM_DASHBOARD_HTML, customers=get_customers())
+
+@app.route("/crm/customer/<psid>")
+@crm_login_required
+def crm_thread(psid):
+    return render_template_string(
+        CRM_THREAD_HTML, customer=get_customer(psid), messages=get_messages(psid), psid=psid
+    )
+
+@app.route("/crm/customer/<psid>/reply", methods=["POST"])
+@crm_login_required
+def crm_reply(psid):
+    text = request.form.get("text", "").strip()
+    if text:
+        send_text(psid, text)
+    return redirect(url_for("crm_thread", psid=psid))
 
 
 # ── SERVE WEB ─────────────────────────────────────────────────────────────────
