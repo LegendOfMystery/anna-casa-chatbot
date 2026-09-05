@@ -207,7 +207,7 @@ def get_conversations(search: str = ""):
 
 def get_customer(psid: str):
     data = supabase_request("GET", "customers", params={"psid": f"eq.{psid}", "limit": "1"})
-    return data[0] if data else {"psid": psid, "name": "", "ad_id": "", "ref_code": ""}
+    return data[0] if data else {"psid": psid, "name": "", "ad_id": "", "ref_code": "", "avatar_url": "", "stage": "Mới"}
 
 def get_messages(psid: str):
     return supabase_request("GET", "messages", params={"psid": f"eq.{psid}", "order": "created_at.asc"}) or []
@@ -313,6 +313,15 @@ def get_sender_name(sender_id):
     except:
         return ""
 
+def get_sender_profile(sender_id):
+    """Trả về (name, avatar_url). Facebook có thể không trả profile_pic tùy quyền app."""
+    try:
+        url = f"https://graph.facebook.com/{sender_id}?fields=name,profile_pic&access_token={META_PAGE_TOKEN}"
+        data = requests.get(url, timeout=5).json()
+        return data.get("name", ""), data.get("profile_pic", "")
+    except:
+        return "", ""
+
 
 # ── CATALOGUES ───────────────────────────────────────────────────────────────
 # Host trực tiếp trên server thay vì dùng link Google Drive — Facebook fetch
@@ -393,6 +402,27 @@ def send_file_reusable(recipient_id, key: str, file_url: str):
         except Exception as e:
             print(f"send_file_reusable failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
     send_file(recipient_id, file_url)
+
+
+def send_uploaded_attachment(recipient_id, file_storage):
+    """Gửi file/ảnh nhân viên tải trực tiếp từ máy lên (CRM) — multipart, không cần host link."""
+    import json as _json2
+    mimetype = file_storage.mimetype or ""
+    att_type = "image" if mimetype.startswith("image/") else "file"
+    url = f"https://graph.facebook.com/v18.0/me/messages"
+    data = {
+        "recipient": _json2.dumps({"id": recipient_id}),
+        "message": _json2.dumps({"attachment": {"type": att_type, "payload": {"is_reusable": True}}}),
+        "access_token": META_PAGE_TOKEN,
+    }
+    files = {"filedata": (file_storage.filename, file_storage.stream, mimetype or "application/octet-stream")}
+    try:
+        r = requests.post(url, data=data, files=files, timeout=30)
+        r.raise_for_status()
+    except Exception as e:
+        print(f"send_uploaded_attachment failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
+
+
 FEMALE_MIDDLE = {"thị", "ngọc", "thùy", "thanh", "thu", "mai", "lan", "hương", "linh", "thi"}
 FEMALE_FIRST  = {"hoa", "lan", "linh", "hương", "trang", "thảo", "ngân", "vy", "ly", "my",
                  "mai", "yến", "vân", "nhung", "loan", "hằng", "nga", "phương", "hiền", "dung",
@@ -684,12 +714,12 @@ def rules_reply(sender_id: str, text: str, pronoun: str) -> bool:
 # ── PROCESS TEXT MESSAGE ──────────────────────────────────────────────────────
 def process_message(sender_id, text, message_id=None):
     try:
-        sender_name = get_sender_name(sender_id)
+        sender_name, avatar_url = get_sender_profile(sender_id)
         first_name = sender_name.split()[-1] if sender_name else ""
         pronoun = detect_gender(sender_name)
         print(f"[MSG] name='{sender_name}' pronoun='{pronoun}'")
 
-        threading.Thread(target=upsert_customer, args=(sender_id,), kwargs={"name": sender_name}, daemon=True).start()
+        threading.Thread(target=upsert_customer, args=(sender_id,), kwargs={"name": sender_name, "avatar_url": avatar_url}, daemon=True).start()
         threading.Thread(target=log_message, args=(sender_id, "in", text), kwargs={"mid": message_id}, daemon=True).start()
 
         if sender_id not in message_log_logged:
@@ -750,11 +780,11 @@ def process_message(sender_id, text, message_id=None):
 # ── PROCESS IMAGE MESSAGE ─────────────────────────────────────────────────────
 def process_image(sender_id, image_url, caption="", message_id=None):
     try:
-        sender_name = get_sender_name(sender_id)
+        sender_name, avatar_url = get_sender_profile(sender_id)
         first_name = sender_name.split()[-1] if sender_name else ""
         pronoun = detect_gender(sender_name)
 
-        threading.Thread(target=upsert_customer, args=(sender_id,), kwargs={"name": sender_name}, daemon=True).start()
+        threading.Thread(target=upsert_customer, args=(sender_id,), kwargs={"name": sender_name, "avatar_url": avatar_url}, daemon=True).start()
         threading.Thread(
             target=log_message,
             args=(sender_id, "in", f"[Khách gửi hình] {caption}" if caption else "[Khách gửi hình]"),
@@ -1001,7 +1031,9 @@ html, body { height: 100%; overflow: hidden; }
 .conv-item { display: flex; gap: 0.7rem; padding: 0.75rem 1.2rem; text-decoration: none; color: inherit; border-bottom: 1px solid #f5f4f0; }
 .conv-item:hover { background: #faf9f6; }
 .conv-item.active { background: #eef7f3; }
-.avatar { width: 38px; height: 38px; border-radius: 50%; background: #e0ddd5; color: #6b6b6b; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; flex-shrink: 0; }
+.avatar { width: 38px; height: 38px; border-radius: 50%; background: #e0ddd5; color: #6b6b6b; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; flex-shrink: 0; overflow: hidden; position: relative; }
+.avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; position: absolute; top: 0; left: 0; }
+.avatar.lg { width: 44px; height: 44px; font-size: 16px; }
 .conv-main { min-width: 0; flex: 1; }
 .conv-top { display: flex; justify-content: space-between; gap: 0.5rem; }
 .conv-name { font-size: 13.5px; font-weight: 600; color: #1a1a1a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1012,18 +1044,28 @@ html, body { height: 100%; overflow: hidden; }
 /* ── Main pane ── */
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .main-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #bbb; font-size: 14px; }
-.thread-header { background: #fff; border-bottom: 1px solid #e8e6e0; padding: 0.9rem 1.5rem; display: flex; justify-content: space-between; align-items: center; }
+.thread-header { background: #fff; border-bottom: 1px solid #e8e6e0; padding: 0.9rem 1.5rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+.thread-header-left { display: flex; align-items: center; gap: 0.8rem; min-width: 0; }
 .thread-header .name { font-weight: 600; font-size: 15px; }
 .thread-header .meta { font-size: 12px; color: #aaa; margin-top: 1px; }
-.thread-header a { font-size: 12px; color: #888; text-decoration: none; }
-.thread { flex: 1; padding: 1.5rem; overflow-y: auto; }
+.badges { display: flex; gap: 0.4rem; margin-top: 4px; flex-wrap: wrap; }
+.badge { font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 6px; background: #f0ede8; color: #666; }
+.badge.ad { background: #e8f3ff; color: #2e6fb8; }
+.stage-select { font-size: 12.5px; padding: 0.4rem 0.6rem; border: 1px solid #e0ddd5; border-radius: 8px; background: #fff; font-weight: 600; color: #1a1a1a; }
+.thread { flex: 1; padding: 1.5rem; overflow-y: auto; position: relative; }
+.thread.drag-over::after { content: 'Thả file vào đây để gửi'; position: absolute; inset: 10px; border: 2px dashed #1D9E75; border-radius: 12px; background: rgba(29,158,117,0.06); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; color: #1D9E75; }
 .bubble { max-width: 65%; padding: 0.65rem 1rem; border-radius: 14px; margin-bottom: 0.2rem; font-size: 14px; line-height: 1.4; white-space: pre-wrap; word-wrap: break-word; }
 .in { background: #fff; border: 1px solid #e8e6e0; margin-right: auto; }
 .out { background: #1D9E75; color: #fff; margin-left: auto; }
 .time { font-size: 10px; color: #bbb; margin: 0 4px 10px; }
-.reply-box { background: #fff; border-top: 1px solid #e8e6e0; padding: 1rem 1.5rem; display: flex; gap: 0.5rem; }
+.reply-box { background: #fff; border-top: 1px solid #e8e6e0; padding: 1rem 1.5rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.reply-row { display: flex; gap: 0.5rem; align-items: flex-end; }
+.attach-btn { width: 40px; height: 40px; flex-shrink: 0; border: 1px solid #e0ddd5; border-radius: 10px; background: #fafaf8; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; }
+.attach-btn:hover { background: #f0ede8; }
 .reply-box textarea { flex: 1; border: 1px solid #e0ddd5; border-radius: 10px; padding: 0.7rem; font-size: 14px; resize: none; font-family: inherit; }
-.reply-box button { padding: 0 1.5rem; border: none; border-radius: 10px; background: #1a1a1a; color: #fff; font-weight: 600; cursor: pointer; }
+.reply-box button.send { padding: 0 1.5rem; border: none; border-radius: 10px; background: #1a1a1a; color: #fff; font-weight: 600; cursor: pointer; }
+.attach-preview { display: none; align-items: center; gap: 0.5rem; font-size: 12.5px; background: #f0ede8; padding: 0.4rem 0.7rem; border-radius: 8px; width: fit-content; }
+.attach-preview button { border: none; background: none; cursor: pointer; color: #888; font-size: 14px; }
 </style></head><body>
 <div class="app">
   <div class="sidebar">
@@ -1043,7 +1085,10 @@ html, body { height: 100%; overflow: hidden; }
       {% if conversations %}
         {% for c in conversations %}
         <a class="conv-item {{ 'active' if c.psid == active_psid else '' }}" href="/crm/customer/{{ c.psid }}">
-          <div class="avatar">{{ (c.name or '?')[0]|upper }}</div>
+          <div class="avatar">
+            {% if c.avatar_url %}<img src="{{ c.avatar_url }}" onerror="this.remove()">{% endif %}
+            <span>{{ (c.name or '?')[0]|upper }}</span>
+          </div>
           <div class="conv-main">
             <div class="conv-top">
               <span class="conv-name">{{ c.name or 'Khách' }}</span>
@@ -1062,10 +1107,26 @@ html, body { height: 100%; overflow: hidden; }
   <div class="main">
     {% if customer %}
     <div class="thread-header">
-      <div>
-        <div class="name">{{ customer.name or 'Khách' }}</div>
-        <div class="meta">Ad ID: {{ customer.ad_id or '—' }} · Ref: {{ customer.ref_code or '—' }}</div>
+      <div class="thread-header-left">
+        <div class="avatar lg">
+          {% if customer.avatar_url %}<img src="{{ customer.avatar_url }}" onerror="this.remove()">{% endif %}
+          <span>{{ (customer.name or '?')[0]|upper }}</span>
+        </div>
+        <div>
+          <div class="name">{{ customer.name or 'Khách' }}</div>
+          <div class="meta">Ref: {{ customer.ref_code or '—' }}</div>
+          <div class="badges">
+            {% if customer.ad_id %}<span class="badge ad">Ad ID: {{ customer.ad_id }}</span><span class="badge ad">Messenger Ads</span>{% endif %}
+          </div>
+        </div>
       </div>
+      <form method="POST" action="/crm/customer/{{ active_psid }}/stage" onchange="this.submit()">
+        <select class="stage-select" name="stage">
+          {% for s in stages %}
+          <option value="{{ s }}" {{ 'selected' if customer.stage == s else '' }}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </form>
     </div>
     <div class="thread" id="thread">
       {% for m in messages %}
@@ -1073,11 +1134,47 @@ html, body { height: 100%; overflow: hidden; }
       <div class="time" style="text-align: {{ 'right' if m.direction == 'out' else 'left' }}">{{ m.created_at[:16].replace('T',' ') if m.created_at else '' }}</div>
       {% endfor %}
     </div>
-    <form class="reply-box" method="POST" action="/crm/customer/{{ active_psid }}/reply">
-      <textarea name="text" rows="2" placeholder="Nhắn tin cho khách..." required></textarea>
-      <button type="submit">Gửi</button>
+    <form class="reply-box" method="POST" action="/crm/customer/{{ active_psid }}/reply" enctype="multipart/form-data" id="reply-form">
+      <div class="attach-preview" id="attach-preview">
+        <span id="attach-name"></span>
+        <button type="button" onclick="clearAttachment()">✕</button>
+      </div>
+      <div class="reply-row">
+        <input type="file" name="attachment" id="attachment-input" style="display:none">
+        <button type="button" class="attach-btn" onclick="document.getElementById('attachment-input').click()" title="Đính kèm file/ảnh">📎</button>
+        <textarea name="text" rows="1" placeholder="Nhắn tin cho khách... (kéo thả file vào để gửi)"></textarea>
+        <button class="send" type="submit">Gửi</button>
+      </div>
     </form>
-    <script>document.getElementById('thread').scrollTop = document.getElementById('thread').scrollHeight;</script>
+    <script>
+      const threadEl = document.getElementById('thread');
+      threadEl.scrollTop = threadEl.scrollHeight;
+      const fileInput = document.getElementById('attachment-input');
+      const preview = document.getElementById('attach-preview');
+      function showAttachPreview(file) {
+        if (file) {
+          preview.style.display = 'flex';
+          document.getElementById('attach-name').textContent = file.name;
+        } else {
+          preview.style.display = 'none';
+        }
+      }
+      function clearAttachment() {
+        fileInput.value = '';
+        showAttachPreview(null);
+      }
+      fileInput.addEventListener('change', () => showAttachPreview(fileInput.files[0]));
+      threadEl.addEventListener('dragover', e => { e.preventDefault(); threadEl.classList.add('drag-over'); });
+      threadEl.addEventListener('dragleave', () => threadEl.classList.remove('drag-over'));
+      threadEl.addEventListener('drop', e => {
+        e.preventDefault();
+        threadEl.classList.remove('drag-over');
+        if (e.dataTransfer.files.length) {
+          fileInput.files = e.dataTransfer.files;
+          showAttachPreview(fileInput.files[0]);
+        }
+      });
+    </script>
     {% else %}
     <div class="main-empty">Chọn 1 hội thoại bên trái để xem</div>
     {% endif %}
@@ -1129,6 +1226,7 @@ def crm_inbox(psid):
         active_psid=psid,
         customer=get_customer(psid) if psid else None,
         messages=get_messages(psid) if psid else [],
+        stages=CRM_STAGES,
     )
 
 @app.route("/crm/backfill", methods=["POST"])
@@ -1149,6 +1247,19 @@ def crm_reply(psid):
     text = request.form.get("text", "").strip()
     if text:
         send_text(psid, text)
+    attachment = request.files.get("attachment")
+    if attachment and attachment.filename:
+        send_uploaded_attachment(psid, attachment)
+    return redirect(url_for("crm_inbox", psid=psid))
+
+CRM_STAGES = ["Mới", "Đang tư vấn", "Đã báo giá", "Đã chốt", "Không tiềm năng"]
+
+@app.route("/crm/customer/<psid>/stage", methods=["POST"])
+@crm_login_required
+def crm_set_stage(psid):
+    stage = request.form.get("stage", "")
+    if stage in CRM_STAGES:
+        upsert_customer(psid, stage=stage)
     return redirect(url_for("crm_inbox", psid=psid))
 
 
