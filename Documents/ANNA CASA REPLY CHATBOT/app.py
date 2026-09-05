@@ -302,6 +302,8 @@ def send_text(recipient_id, text):
     try:
         r = requests.post(url, json=payload, timeout=10)
         r.raise_for_status()
+        mid = r.json().get("message_id")
+        threading.Thread(target=log_message, args=(recipient_id, "out", text), kwargs={"mid": mid}, daemon=True).start()
     except Exception as e:
         print(f"send_text failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
 
@@ -345,6 +347,8 @@ def send_image(recipient_id, image_url):
     try:
         r = requests.post(url, json=payload, timeout=15)
         r.raise_for_status()
+        mid = r.json().get("message_id")
+        threading.Thread(target=log_message, args=(recipient_id, "out", f"[Hình ảnh] {image_url}"), kwargs={"mid": mid}, daemon=True).start()
     except Exception as e:
         print(f"send_image failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
 
@@ -362,6 +366,8 @@ def send_file(recipient_id, file_url):
     try:
         r = requests.post(url, json=payload, timeout=15)
         r.raise_for_status()
+        mid = r.json().get("message_id")
+        threading.Thread(target=log_message, args=(recipient_id, "out", f"[File] {file_url}"), kwargs={"mid": mid}, daemon=True).start()
     except Exception as e:
         print(f"send_file failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
 
@@ -398,6 +404,8 @@ def send_file_reusable(recipient_id, key: str, file_url: str):
         try:
             r = requests.post(url, json=payload, timeout=15)
             r.raise_for_status()
+            mid = r.json().get("message_id")
+            threading.Thread(target=log_message, args=(recipient_id, "out", f"[File] {file_url}"), kwargs={"mid": mid}, daemon=True).start()
             return
         except Exception as e:
             print(f"send_file_reusable failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
@@ -419,6 +427,9 @@ def send_uploaded_attachment(recipient_id, file_storage):
     try:
         r = requests.post(url, data=data, files=files, timeout=30)
         r.raise_for_status()
+        mid = r.json().get("message_id")
+        label = "Hình ảnh" if att_type == "image" else "File"
+        threading.Thread(target=log_message, args=(recipient_id, "out", f"[{label} đính kèm — {file_storage.filename}]"), kwargs={"mid": mid}, daemon=True).start()
     except Exception as e:
         print(f"send_uploaded_attachment failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
 
@@ -787,10 +798,12 @@ def process_image(sender_id, image_url, caption="", message_id=None):
         threading.Thread(target=upsert_customer, args=(sender_id,), kwargs={"name": sender_name, "avatar_url": avatar_url}, daemon=True).start()
         threading.Thread(
             target=log_message,
-            args=(sender_id, "in", f"[Khách gửi hình] {caption}" if caption else "[Khách gửi hình]"),
+            args=(sender_id, "in", f"[Hình ảnh] {image_url}"),
             kwargs={"mid": message_id},
             daemon=True
         ).start()
+        if caption:
+            threading.Thread(target=log_message, args=(sender_id, "in", caption), daemon=True).start()
 
         # Caption hỏi Armchair Nook → flow riêng
         if caption and is_nook_question(caption):
@@ -1055,6 +1068,8 @@ html, body { height: 100%; overflow: hidden; }
 .thread { flex: 1; padding: 1.5rem; overflow-y: auto; position: relative; }
 .thread.drag-over::after { content: 'Thả file vào đây để gửi'; position: absolute; inset: 10px; border: 2px dashed #1D9E75; border-radius: 12px; background: rgba(29,158,117,0.06); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; color: #1D9E75; }
 .bubble { max-width: 65%; padding: 0.65rem 1rem; border-radius: 14px; margin-bottom: 0.2rem; font-size: 14px; line-height: 1.4; white-space: pre-wrap; word-wrap: break-word; }
+.bubble.img-bubble { padding: 4px; background: transparent !important; border: none !important; }
+.bubble.img-bubble img { max-width: 240px; max-height: 240px; border-radius: 12px; display: block; object-fit: cover; }
 .in { background: #fff; border: 1px solid #e8e6e0; margin-right: auto; }
 .out { background: #1D9E75; color: #fff; margin-left: auto; }
 .time { font-size: 10px; color: #bbb; margin: 0 4px 10px; }
@@ -1094,7 +1109,8 @@ html, body { height: 100%; overflow: hidden; }
               <span class="conv-name">{{ c.name or 'Khách' }}</span>
               <span class="conv-time">{{ (c.last_message_at or c.last_contact_at or '')[5:10] }}</span>
             </div>
-            <div class="conv-preview">{{ '↩ ' if c.last_message_direction == 'out' else '' }}{{ c.last_message_body or '' }}</div>
+            {% set preview = c.last_message_body or '' %}
+            <div class="conv-preview">{{ '↩ ' if c.last_message_direction == 'out' else '' }}{% if preview.startswith('[Hình ảnh]') %}📷 Hình ảnh{% elif preview.startswith('[File]') %}📎 File đính kèm{% else %}{{ preview }}{% endif %}</div>
           </div>
         </a>
         {% endfor %}
@@ -1130,7 +1146,13 @@ html, body { height: 100%; overflow: hidden; }
     </div>
     <div class="thread" id="thread">
       {% for m in messages %}
+      {% if m.body.startswith('[Hình ảnh] ') %}
+      <div class="bubble img-bubble {{ 'out' if m.direction == 'out' else 'in' }}"><img src="{{ m.body[11:] }}" alt="Hình ảnh"></div>
+      {% elif m.body.startswith('[File] ') %}
+      <div class="bubble {{ 'out' if m.direction == 'out' else 'in' }}"><a href="{{ m.body[7:] }}" target="_blank" rel="noopener" style="color:inherit">📎 Xem file đính kèm</a></div>
+      {% else %}
       <div class="bubble {{ 'out' if m.direction == 'out' else 'in' }}">{{ m.body }}</div>
+      {% endif %}
       <div class="time" style="text-align: {{ 'right' if m.direction == 'out' else 'left' }}">{{ m.created_at[:16].replace('T',' ') if m.created_at else '' }}</div>
       {% endfor %}
     </div>
