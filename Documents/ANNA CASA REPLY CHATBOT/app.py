@@ -236,7 +236,6 @@ def send_text(recipient_id, text):
     try:
         r = requests.post(url, json=payload, timeout=10)
         r.raise_for_status()
-        threading.Thread(target=log_message, args=(recipient_id, "out", text), daemon=True).start()
     except Exception as e:
         print(f"send_text failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
 
@@ -271,7 +270,6 @@ def send_image(recipient_id, image_url):
     try:
         r = requests.post(url, json=payload, timeout=15)
         r.raise_for_status()
-        threading.Thread(target=log_message, args=(recipient_id, "out", f"[Hình ảnh] {image_url}"), daemon=True).start()
     except Exception as e:
         print(f"send_image failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
 
@@ -289,7 +287,6 @@ def send_file(recipient_id, file_url):
     try:
         r = requests.post(url, json=payload, timeout=15)
         r.raise_for_status()
-        threading.Thread(target=log_message, args=(recipient_id, "out", f"[File] {file_url}"), daemon=True).start()
     except Exception as e:
         print(f"send_file failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
 
@@ -326,7 +323,6 @@ def send_file_reusable(recipient_id, key: str, file_url: str):
         try:
             r = requests.post(url, json=payload, timeout=15)
             r.raise_for_status()
-            threading.Thread(target=log_message, args=(recipient_id, "out", f"[File] {file_url}"), daemon=True).start()
             return
         except Exception as e:
             print(f"send_file_reusable failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
@@ -795,6 +791,19 @@ def receive_webhook():
             # ─────────────────────────────────────────────────────────────────
 
             if is_echo:
+                # Echo = mọi tin Page gửi ra (bot gửi HOẶC nhân viên trả lời tay
+                # trong Facebook Inbox) — log lại để CRM đồng bộ đầy đủ 2 chiều.
+                customer_psid = event.get("recipient", {}).get("id")
+                if customer_psid:
+                    echo_body = text
+                    if not echo_body and attachments:
+                        att_type = attachments[0].get("type", "file")
+                        att_url = attachments[0].get("payload", {}).get("url", "")
+                        label = "Hình ảnh" if att_type == "image" else "File"
+                        echo_body = f"[{label}] {att_url}" if att_url else f"[{label}]"
+                    if echo_body:
+                        threading.Thread(target=upsert_customer, args=(customer_psid,), daemon=True).start()
+                        threading.Thread(target=log_message, args=(customer_psid, "out", echo_body), daemon=True).start()
                 continue
 
             if message_id and message_id in processed_messages:
