@@ -175,13 +175,24 @@ def upsert_customer(psid: str, **fields):
         extra_headers={"Prefer": "resolution=merge-duplicates,return=minimal"}
     )
 
-def log_message(psid: str, direction: str, body: str):
+def log_message(psid: str, direction: str, body: str, mid: str = None, created_at: str = None):
     if not body:
         return
-    supabase_request("POST", "messages", json_body={
+    row = {
         "psid": psid, "direction": direction, "body": body,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    })
+        "created_at": created_at or datetime.now(timezone.utc).isoformat()
+    }
+    if mid:
+        # Có fb_mid → upsert bỏ qua nếu trùng (tránh log đúp khi backfill
+        # chạy lại hoặc đè lên tin đã ghi qua webhook realtime).
+        row["fb_mid"] = mid
+        supabase_request(
+            "POST", "messages", json_body=row,
+            params={"on_conflict": "fb_mid"},
+            extra_headers={"Prefer": "resolution=ignore-duplicates,return=minimal"}
+        )
+    else:
+        supabase_request("POST", "messages", json_body=row)
 
 def get_customers():
     return supabase_request("GET", "customers", params={"order": "last_contact_at.desc", "limit": "300"}) or []
@@ -192,6 +203,53 @@ def get_customer(psid: str):
 
 def get_messages(psid: str):
     return supabase_request("GET", "messages", params={"psid": f"eq.{psid}", "order": "created_at.asc"}) or []
+
+_backfill_status = {"running": False, "conversations": 0, "messages": 0, "done": False, "error": ""}
+
+def backfill_facebook_conversations(max_conversations: int = 300):
+    """Kéo lịch sử hội thoại cũ từ Facebook Conversations API vào Supabase — chạy 1 lần, nền."""
+    global _backfill_status
+    _backfill_status = {"running": True, "conversations": 0, "messages": 0, "done": False, "error": ""}
+    try:
+        page_info = requests.get(f"https://graph.facebook.com/v18.0/me?access_token={META_PAGE_TOKEN}", timeout=10).json()
+        page_id = page_info.get("id")
+        if not page_id:
+            _backfill_status.update(running=False, done=True, error=f"Không lấy được page_id: {page_info}")
+            return
+
+        url = f"https://graph.facebook.com/v18.0/{page_id}/conversations"
+        params = {
+            "platform": "messenger",
+            "fields": "participants,messages.limit(100){message,from,created_time,id}",
+            "limit": 50,
+            "access_token": META_PAGE_TOKEN,
+        }
+        while url and _backfill_status["conversations"] < max_conversations:
+            r = requests.get(url, params=params, timeout=30)
+            params = None  # "next" url của Facebook đã tự kèm sẵn query string
+            r.raise_for_status()
+            data = r.json()
+            for conv in data.get("data", []):
+                _backfill_status["conversations"] += 1
+                participants = conv.get("participants", {}).get("data", [])
+                customer = next((p for p in participants if p.get("id") != page_id), None)
+                if not customer:
+                    continue
+                psid = customer["id"]
+                for m in conv.get("messages", {}).get("data", []):
+                    body = m.get("message", "")
+                    if not body:
+                        continue
+                    direction = "out" if m.get("from", {}).get("id") == page_id else "in"
+                    log_message(psid, direction, body, mid=m.get("id"), created_at=m.get("created_time"))
+                    _backfill_status["messages"] += 1
+                upsert_customer(psid, name=customer.get("name", ""))
+            url = data.get("paging", {}).get("next")
+        _backfill_status.update(running=False, done=True)
+        print(f"[BACKFILL] Xong: {_backfill_status['conversations']} hội thoại, {_backfill_status['messages']} tin nhắn")
+    except Exception as e:
+        _backfill_status.update(running=False, done=True, error=str(e))
+        print(f"[BACKFILL] Lỗi: {e}")
 
 
 # ── PRODUCT CATALOG ───────────────────────────────────────────────────────────
@@ -616,7 +674,7 @@ def rules_reply(sender_id: str, text: str, pronoun: str) -> bool:
 
 
 # ── PROCESS TEXT MESSAGE ──────────────────────────────────────────────────────
-def process_message(sender_id, text):
+def process_message(sender_id, text, message_id=None):
     try:
         sender_name = get_sender_name(sender_id)
         first_name = sender_name.split()[-1] if sender_name else ""
@@ -624,7 +682,7 @@ def process_message(sender_id, text):
         print(f"[MSG] name='{sender_name}' pronoun='{pronoun}'")
 
         threading.Thread(target=upsert_customer, args=(sender_id,), kwargs={"name": sender_name}, daemon=True).start()
-        threading.Thread(target=log_message, args=(sender_id, "in", text), daemon=True).start()
+        threading.Thread(target=log_message, args=(sender_id, "in", text), kwargs={"mid": message_id}, daemon=True).start()
 
         if sender_id not in message_log_logged:
             message_log_logged.add(sender_id)
@@ -682,14 +740,19 @@ def process_message(sender_id, text):
 
 
 # ── PROCESS IMAGE MESSAGE ─────────────────────────────────────────────────────
-def process_image(sender_id, image_url, caption=""):
+def process_image(sender_id, image_url, caption="", message_id=None):
     try:
         sender_name = get_sender_name(sender_id)
         first_name = sender_name.split()[-1] if sender_name else ""
         pronoun = detect_gender(sender_name)
 
         threading.Thread(target=upsert_customer, args=(sender_id,), kwargs={"name": sender_name}, daemon=True).start()
-        threading.Thread(target=log_message, args=(sender_id, "in", f"[Khách gửi hình] {caption}" if caption else "[Khách gửi hình]"), daemon=True).start()
+        threading.Thread(
+            target=log_message,
+            args=(sender_id, "in", f"[Khách gửi hình] {caption}" if caption else "[Khách gửi hình]"),
+            kwargs={"mid": message_id},
+            daemon=True
+        ).start()
 
         # Caption hỏi Armchair Nook → flow riêng
         if caption and is_nook_question(caption):
@@ -803,7 +866,10 @@ def receive_webhook():
                         echo_body = f"[{label}] {att_url}" if att_url else f"[{label}]"
                     if echo_body:
                         threading.Thread(target=upsert_customer, args=(customer_psid,), daemon=True).start()
-                        threading.Thread(target=log_message, args=(customer_psid, "out", echo_body), daemon=True).start()
+                        threading.Thread(
+                            target=log_message, args=(customer_psid, "out", echo_body),
+                            kwargs={"mid": message_id}, daemon=True
+                        ).start()
                 continue
 
             if message_id and message_id in processed_messages:
@@ -830,6 +896,7 @@ def receive_webhook():
                             threading.Thread(
                                 target=process_image,
                                 args=(sender_id, image_url, text or ""),
+                                kwargs={"message_id": message_id},
                                 daemon=True
                             ).start()
                 if not has_image:
@@ -837,6 +904,7 @@ def receive_webhook():
                     threading.Thread(
                         target=process_message,
                         args=(sender_id, text or ""),
+                        kwargs={"message_id": message_id},
                         daemon=True
                     ).start()
                 continue
@@ -848,6 +916,7 @@ def receive_webhook():
             threading.Thread(
                 target=process_message,
                 args=(sender_id, text),
+                kwargs={"message_id": message_id},
                 daemon=True
             ).start()
 
@@ -917,11 +986,37 @@ tr:last-child td { border-bottom: none; }
 tr:hover { background: #faf9f6; }
 a.row-link { color: #1a1a1a; text-decoration: none; }
 .empty { color: #aaa; text-align: center; padding: 2rem; background: #fff; border-radius: 12px; border: 1px solid #e8e6e0; }
+.toolbar { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 1rem; }
+.sync-btn { padding: 0.5rem 1rem; border: 1px solid #e0ddd5; border-radius: 8px; background: #fff; font-size: 13px; font-weight: 600; cursor: pointer; }
+.sync-btn:hover { background: #f5f4f0; }
+.sync-status { font-size: 12px; color: #888; }
 </style></head><body>
 <div class="header">
   <div class="logo">Anna Casa CRM — {{ customers|length }} khách</div>
   <a class="logout" href="/crm/logout">Đăng xuất</a>
 </div>
+<div class="toolbar">
+  <form method="POST" action="/crm/backfill" onsubmit="return confirm('Kéo lịch sử hội thoại cũ từ Facebook về? Có thể mất vài phút.')">
+    <button class="sync-btn" type="submit">↻ Đồng bộ hội thoại cũ</button>
+  </form>
+  <span class="sync-status" id="sync-status"></span>
+</div>
+<script>
+async function pollBackfill() {
+  try {
+    const res = await fetch('/crm/backfill/status');
+    const data = await res.json();
+    const el = document.getElementById('sync-status');
+    if (data.running) {
+      el.textContent = `Đang đồng bộ... ${data.conversations} hội thoại, ${data.messages} tin nhắn`;
+      setTimeout(pollBackfill, 3000);
+    } else if (data.done && data.conversations > 0) {
+      el.textContent = data.error ? `Lỗi: ${data.error}` : `Đã đồng bộ xong ${data.conversations} hội thoại, ${data.messages} tin nhắn — reload trang để xem`;
+    }
+  } catch (e) {}
+}
+pollBackfill();
+</script>
 {% if customers %}
 <table>
   <tr><th>Tên</th><th>Ad ID</th><th>Ref</th><th>Liên hệ cuối</th><th></th></tr>
@@ -997,6 +1092,18 @@ def crm_logout():
 @crm_login_required
 def crm_dashboard():
     return render_template_string(CRM_DASHBOARD_HTML, customers=get_customers())
+
+@app.route("/crm/backfill", methods=["POST"])
+@crm_login_required
+def crm_backfill():
+    if not _backfill_status["running"]:
+        threading.Thread(target=backfill_facebook_conversations, daemon=True).start()
+    return redirect(url_for("crm_dashboard"))
+
+@app.route("/crm/backfill/status")
+@crm_login_required
+def crm_backfill_status():
+    return jsonify(_backfill_status)
 
 @app.route("/crm/customer/<psid>")
 @crm_login_required
