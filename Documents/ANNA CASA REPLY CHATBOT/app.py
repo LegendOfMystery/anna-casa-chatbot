@@ -1296,6 +1296,21 @@ def serve_catalog(filename):
     return send_from_directory("catalogs", filename)
 
 
+# Link rút gọn để dán vào tin nhắn cho khách — tránh gửi URL dài đầy ký tự
+# encode (%E1%BA%A5y...) trông thiếu chuyên nghiệp khi nhân viên copy tay.
+CATALOG_SHORT_LINKS = {
+    "co-dien": "wallpaper_1",
+    "hien-dai": "wallpaper_2",
+}
+
+@app.route("/c/<slug>")
+def catalog_short_link(slug):
+    key = CATALOG_SHORT_LINKS.get(slug)
+    if not key:
+        return "Not found", 404
+    return redirect(CATALOGUES[key])
+
+
 # ── RUN ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
