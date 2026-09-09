@@ -23,6 +23,7 @@ SHEET_ID            = os.environ["SHEET_ID"]
 SUPABASE_URL         = os.environ.get("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 CRM_PASSWORD         = os.environ.get("CRM_PASSWORD", "")
+ADMIN_API_KEY        = os.environ.get("ADMIN_API_KEY", "")
 
 
 # ── IN-MEMORY STORE ───────────────────────────────────────────────────────────
@@ -986,6 +987,23 @@ def api_toggle():
     bot_enabled = not bot_enabled
     print(f"[TOGGLE] Bot {'enabled' if bot_enabled else 'disabled'}")
     return jsonify({"bot_enabled": bot_enabled})
+
+
+@app.route("/api/send-catalog", methods=["POST"])
+def api_send_catalog():
+    """Gửi 2 file catalog giấy dán tường thật (không phải link) cho 1 khách theo PSID.
+    Dùng đúng hàm send_file_reusable() bot vẫn dùng — Facebook nhận URL, tự tải và
+    hiện thành thẻ file trong khung chat, không phải link text."""
+    if not ADMIN_API_KEY or request.headers.get("X-Admin-Key") != ADMIN_API_KEY:
+        return jsonify({"error": "unauthorized"}), 401
+    data = request.get_json(silent=True) or {}
+    psid = data.get("psid", "").strip()
+    if not psid:
+        return jsonify({"error": "psid required"}), 400
+    send_file_reusable(psid, "wallpaper_1", CATALOGUES["wallpaper_1"])
+    time.sleep(1)
+    send_file_reusable(psid, "wallpaper_2", CATALOGUES["wallpaper_2"])
+    return jsonify({"ok": True})
 
 
 # ── MINI CRM ──────────────────────────────────────────────────────────────────
