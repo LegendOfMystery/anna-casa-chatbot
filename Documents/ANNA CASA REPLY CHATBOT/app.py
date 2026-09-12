@@ -1226,7 +1226,7 @@ html, body { height: 100%; overflow: hidden; }
       {% endfor %}
     </div>
     <form method="POST" action="/crm/customer/{{ active_psid }}/quick-gdt" class="quick-actions">
-      <button type="submit" class="quick-gdt-btn" onclick="return confirm('Gửi chào + 2 catalog giấy dán tường + câu hỏi nhà riêng/dự án cho khách này?')">📄 Tư vấn giấy dán tường (1 bấm)</button>
+      <button type="submit" class="quick-gdt-btn" onclick="this.disabled=true; this.textContent='Đang gửi...';">📄 Tư vấn giấy dán tường (1 bấm)</button>
     </form>
     <form class="reply-box" method="POST" action="/crm/customer/{{ active_psid }}/reply" enctype="multipart/form-data" id="reply-form">
       <div class="attach-preview" id="attach-preview">
