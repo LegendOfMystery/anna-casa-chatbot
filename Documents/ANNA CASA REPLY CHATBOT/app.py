@@ -1067,21 +1067,34 @@ def api_debug_sync():
         return jsonify({"error": "psid required"}), 400
     customer_raw = supabase_request("GET", "customers", params={"psid": f"eq.{psid}", "limit": "1"})
     messages_raw = supabase_request("GET", "messages", params={"psid": f"eq.{psid}", "order": "created_at.asc"})
-    test_mid = f"debugtest_{int(time.time())}"
-    insert_result = supabase_request(
-        "POST", "messages",
-        json_body={"psid": psid, "direction": "out", "body": "[debug-sync test]", "fb_mid": test_mid,
-                   "created_at": datetime.now(timezone.utc).isoformat()},
-        params={"on_conflict": "fb_mid"},
-        extra_headers={"Prefer": "resolution=ignore-duplicates,return=representation"},
-    )
+
+    # Insert thô, tự đọc status_code + body, không qua supabase_request() để thấy
+    # đúng lỗi Postgres/PostgREST trả về (vd thiếu unique constraint cho on_conflict).
+    ts = int(time.time())
+    url = f"{SUPABASE_URL}/rest/v1/messages"
+    headers = {
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Content-Type": "application/json",
+    }
+    plain_body = {"psid": psid, "direction": "out", "body": "[debug plain insert]",
+                  "fb_mid": f"debugplain_{ts}", "created_at": datetime.now(timezone.utc).isoformat()}
+    r_plain = requests.post(url, headers=headers, json=plain_body, timeout=10)
+
+    onconf_headers = {**headers, "Prefer": "resolution=ignore-duplicates,return=representation"}
+    onconf_body = {"psid": psid, "direction": "out", "body": "[debug on_conflict insert]",
+                   "fb_mid": f"debugonconf_{ts}", "created_at": datetime.now(timezone.utc).isoformat()}
+    r_onconf = requests.post(url, headers=onconf_headers, params={"on_conflict": "fb_mid"}, json=onconf_body, timeout=10)
+
     return jsonify({
         "psid": psid,
         "customer_row": customer_raw,
         "messages_count": len(messages_raw) if messages_raw is not None else None,
         "messages_raw_is_none": messages_raw is None,
-        "test_insert_result": insert_result,
-        "test_insert_returned_none": insert_result is None,
+        "plain_insert_status": r_plain.status_code,
+        "plain_insert_body": r_plain.text[:800],
+        "onconflict_insert_status": r_onconf.status_code,
+        "onconflict_insert_body": r_onconf.text[:800],
     })
 
 
