@@ -161,7 +161,8 @@ def supabase_request(method: str, path: str, json_body: dict = None, params: dic
         r.raise_for_status()
         return r.json() if r.text else None
     except Exception as e:
-        print(f"[SUPABASE] {method} {path} failed: {e}")
+        body_preview = r.text[:500] if "r" in dir() else ""
+        print(f"[SUPABASE] {method} {path} failed: {e} | body={body_preview}")
         return None
 
 def upsert_customer(psid: str, **fields):
@@ -1052,6 +1053,36 @@ def api_send_catalog():
     time.sleep(1)
     send_file_reusable(psid, "wallpaper_2", CATALOGUES["wallpaper_2"])
     return jsonify({"ok": True})
+
+
+@app.route("/api/debug-sync", methods=["GET"])
+def api_debug_sync():
+    """Endpoint tạm để chẩn đoán lỗi đồng bộ CRM (tin nhắn/avatar/ad_id không hiện).
+    Trả về nguyên trạng dữ liệu Supabase cho 1 psid, không qua template, để so
+    sánh với những gì CRM đang hiển thị."""
+    if not ADMIN_API_KEY or request.headers.get("X-Admin-Key") != ADMIN_API_KEY:
+        return jsonify({"error": "unauthorized"}), 401
+    psid = request.args.get("psid", "").strip()
+    if not psid:
+        return jsonify({"error": "psid required"}), 400
+    customer_raw = supabase_request("GET", "customers", params={"psid": f"eq.{psid}", "limit": "1"})
+    messages_raw = supabase_request("GET", "messages", params={"psid": f"eq.{psid}", "order": "created_at.asc"})
+    test_mid = f"debugtest_{int(time.time())}"
+    insert_result = supabase_request(
+        "POST", "messages",
+        json_body={"psid": psid, "direction": "out", "body": "[debug-sync test]", "fb_mid": test_mid,
+                   "created_at": datetime.now(timezone.utc).isoformat()},
+        params={"on_conflict": "fb_mid"},
+        extra_headers={"Prefer": "resolution=ignore-duplicates,return=representation"},
+    )
+    return jsonify({
+        "psid": psid,
+        "customer_row": customer_raw,
+        "messages_count": len(messages_raw) if messages_raw is not None else None,
+        "messages_raw_is_none": messages_raw is None,
+        "test_insert_result": insert_result,
+        "test_insert_returned_none": insert_result is None,
+    })
 
 
 # ── MINI CRM ──────────────────────────────────────────────────────────────────
