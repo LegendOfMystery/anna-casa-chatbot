@@ -1188,7 +1188,7 @@ html, body { height: 100%; overflow: hidden; }
         <input class="search-box" type="text" name="q" value="{{ search }}" placeholder="Tìm khách theo tên...">
       </form>
       <div class="sync-row">
-        <form method="POST" action="/crm/backfill" onsubmit="return confirm('Kéo lịch sử hội thoại cũ từ Facebook về? Có thể mất vài phút.')">
+        <form method="POST" action="/crm/backfill" onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='Đang đồng bộ...';">
           <button class="sync-btn" type="submit">↻ Đồng bộ hội thoại cũ</button>
         </form>
         <span class="sync-status" id="sync-status"></span>
