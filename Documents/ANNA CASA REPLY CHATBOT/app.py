@@ -185,14 +185,17 @@ def log_message(psid: str, direction: str, body: str, mid: str = None, created_a
         "created_at": created_at or datetime.now(timezone.utc).isoformat()
     }
     if mid:
-        # Có fb_mid → upsert bỏ qua nếu trùng (tránh log đúp khi backfill
-        # chạy lại hoặc đè lên tin đã ghi qua webhook realtime).
+        # Có fb_mid → tránh log đúp khi backfill chạy lại hoặc đè lên tin đã ghi
+        # qua webhook realtime. Bảng messages hiện KHÔNG có unique constraint
+        # trên fb_mid nên dùng on_conflict sẽ bị Postgres từ chối (42P10) —
+        # tự kiểm tra tồn tại trước bằng SELECT rồi mới INSERT thay vì dựa vào
+        # on_conflict. (Nếu sau này thêm được unique constraint cho fb_mid,
+        # có thể chuyển lại dùng on_conflict cho gọn và an toàn hơn với race.)
+        existing = supabase_request("GET", "messages", params={"fb_mid": f"eq.{mid}", "limit": "1"})
+        if existing:
+            return
         row["fb_mid"] = mid
-        supabase_request(
-            "POST", "messages", json_body=row,
-            params={"on_conflict": "fb_mid"},
-            extra_headers={"Prefer": "resolution=ignore-duplicates,return=minimal"}
-        )
+        supabase_request("POST", "messages", json_body=row)
     else:
         supabase_request("POST", "messages", json_body=row)
 
@@ -253,7 +256,10 @@ def backfill_facebook_conversations(max_conversations: int = 300):
                     direction = "out" if m.get("from", {}).get("id") == page_id else "in"
                     log_message(psid, direction, body, mid=m.get("id"), created_at=m.get("created_time"))
                     _backfill_status["messages"] += 1
-                upsert_customer(psid, name=customer.get("name", ""))
+                # Conversations API không trả avatar — gọi thêm get_sender_profile()
+                # để CRM có ảnh đại diện thay vì chỉ chữ cái đầu tên.
+                _, avatar_url = get_sender_profile(psid)
+                upsert_customer(psid, name=customer.get("name", ""), avatar_url=avatar_url)
             url = data.get("paging", {}).get("next")
         _backfill_status.update(running=False, done=True)
         print(f"[BACKFILL] Xong: {_backfill_status['conversations']} hội thoại, {_backfill_status['messages']} tin nhắn")
@@ -938,8 +944,13 @@ def receive_webhook():
             ref = referral.get("ref", "").strip() or postback_payload
             ad_id_from_referral = referral.get("ad_id", "").strip()
             if ad_id_from_referral and sender_id not in ad_id_store:
+                # ad_id_store chỉ là cache trong RAM, mất sạch mỗi lần redeploy —
+                # kiểm tra thêm trong DB để không đè ad_id gốc (ad đầu tiên khách
+                # bấm vào) bằng ad_id của lần bấm quảng cáo khác sau redeploy.
+                already_has_ad_id = bool(get_customer(sender_id).get("ad_id"))
                 ad_id_store[sender_id] = ad_id_from_referral
-                threading.Thread(target=upsert_customer, args=(sender_id,), kwargs={"ad_id": ad_id_from_referral}, daemon=True).start()
+                if not already_has_ad_id:
+                    threading.Thread(target=upsert_customer, args=(sender_id,), kwargs={"ad_id": ad_id_from_referral}, daemon=True).start()
 
             if ref and sender_id not in ref_store:
                 ref_store[sender_id] = ref
