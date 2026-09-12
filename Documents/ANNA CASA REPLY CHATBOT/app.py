@@ -219,10 +219,14 @@ def get_messages(psid: str):
 
 _backfill_status = {"running": False, "conversations": 0, "messages": 0, "done": False, "error": ""}
 
-def backfill_facebook_conversations(max_conversations: int = 300):
-    """Kéo lịch sử hội thoại cũ từ Facebook Conversations API vào Supabase — chạy 1 lần, nền."""
+def backfill_facebook_conversations(days_back: int = 30, max_conversations: int = 1000):
+    """Kéo lịch sử hội thoại cũ từ Facebook Conversations API vào Supabase — chạy 1 lần, nền.
+    Chỉ lấy hội thoại có hoạt động trong `days_back` ngày gần nhất — Conversations API trả
+    về theo thứ tự updated_time giảm dần nên hễ gặp 1 hội thoại cũ hơn mốc là dừng luôn,
+    không cần duyệt hết toàn bộ hộp thư (nhanh hơn nhiều so với cap cứng theo số lượng)."""
     global _backfill_status
-    _backfill_status = {"running": True, "conversations": 0, "messages": 0, "done": False, "error": ""}
+    _backfill_status = {"running": True, "conversations": 0, "messages": 0, "done": False, "error": "", "days_back": days_back}
+    cutoff = datetime.now(timezone.utc).timestamp() - days_back * 86400
     try:
         page_info = requests.get(f"https://graph.facebook.com/v18.0/me?access_token={META_PAGE_TOKEN}", timeout=10).json()
         page_id = page_info.get("id")
@@ -233,16 +237,26 @@ def backfill_facebook_conversations(max_conversations: int = 300):
         url = f"https://graph.facebook.com/v18.0/{page_id}/conversations"
         params = {
             "platform": "messenger",
-            "fields": "participants,messages.limit(100){message,from,created_time,id}",
+            "fields": "participants,updated_time,messages.limit(100){message,from,created_time,id}",
             "limit": 50,
             "access_token": META_PAGE_TOKEN,
         }
-        while url and _backfill_status["conversations"] < max_conversations:
+        stop = False
+        while url and not stop and _backfill_status["conversations"] < max_conversations:
             r = requests.get(url, params=params, timeout=30)
             params = None  # "next" url của Facebook đã tự kèm sẵn query string
             r.raise_for_status()
             data = r.json()
             for conv in data.get("data", []):
+                updated_time = conv.get("updated_time", "")
+                if updated_time:
+                    try:
+                        conv_ts = datetime.fromisoformat(updated_time.replace("Z", "+00:00")).timestamp()
+                        if conv_ts < cutoff:
+                            stop = True
+                            break
+                    except ValueError:
+                        pass
                 _backfill_status["conversations"] += 1
                 participants = conv.get("participants", {}).get("data", [])
                 customer = next((p for p in participants if p.get("id") != page_id), None)
@@ -420,24 +434,79 @@ def send_file_reusable(recipient_id, key: str, file_url: str):
     send_file(recipient_id, file_url)
 
 
+SUPABASE_UPLOADS_BUCKET = "crm-uploads"
+_supabase_bucket_ready = False
+
+def _ensure_supabase_bucket():
+    """Tạo bucket public 1 lần (idempotent) trước khi upload lần đầu — không chặn
+    lúc app khởi động vì production chạy qua gunicorn, không qua __main__."""
+    global _supabase_bucket_ready
+    if _supabase_bucket_ready:
+        return
+    try:
+        requests.post(
+            f"{SUPABASE_URL}/storage/v1/bucket",
+            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                     "Content-Type": "application/json"},
+            json={"id": SUPABASE_UPLOADS_BUCKET, "name": SUPABASE_UPLOADS_BUCKET, "public": True},
+            timeout=10,
+        )
+        # 200 = tạo mới thành công, 400 "already exists" = đã có sẵn — cả 2 đều ổn.
+    except Exception as e:
+        print(f"_ensure_supabase_bucket failed: {e}")
+    _supabase_bucket_ready = True
+
+def upload_to_supabase_storage(filename: str, data: bytes, content_type: str) -> str:
+    """Lưu 1 file lên Supabase Storage (bucket public), trả về URL công khai hoặc "" nếu lỗi.
+    Dùng cho file/ảnh nhân viên tải lên từ CRM — đĩa của Render bị xóa sạch mỗi lần
+    redeploy nên không lưu trực tiếp trên server được, phải lưu vào Supabase mới bền."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return ""
+    _ensure_supabase_bucket()
+    from urllib.parse import quote
+    import uuid
+    safe_name = f"{uuid.uuid4().hex}_{filename}"
+    path = quote(safe_name)
+    try:
+        r = requests.post(
+            f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_UPLOADS_BUCKET}/{path}",
+            headers={
+                "apikey": SUPABASE_SERVICE_KEY,
+                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                "Content-Type": content_type or "application/octet-stream",
+            },
+            data=data, timeout=30,
+        )
+        r.raise_for_status()
+        return f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_UPLOADS_BUCKET}/{path}"
+    except Exception as e:
+        print(f"upload_to_supabase_storage failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
+        return ""
+
+
 def send_uploaded_attachment(recipient_id, file_storage):
-    """Gửi file/ảnh nhân viên tải trực tiếp từ máy lên (CRM) — multipart, không cần host link."""
+    """Gửi file/ảnh nhân viên tải trực tiếp từ máy lên (CRM) — multipart, không cần host link.
+    Đồng thời lưu 1 bản lên Supabase Storage để CRM có URL bền hiện lại ảnh/file này."""
     import json as _json2
     mimetype = file_storage.mimetype or ""
     att_type = "image" if mimetype.startswith("image/") else "file"
+    file_bytes = file_storage.stream.read()
+
     url = f"https://graph.facebook.com/v18.0/me/messages"
     data = {
         "recipient": _json2.dumps({"id": recipient_id}),
         "message": _json2.dumps({"attachment": {"type": att_type, "payload": {"is_reusable": True}}}),
         "access_token": META_PAGE_TOKEN,
     }
-    files = {"filedata": (file_storage.filename, file_storage.stream, mimetype or "application/octet-stream")}
+    files = {"filedata": (file_storage.filename, file_bytes, mimetype or "application/octet-stream")}
     try:
         r = requests.post(url, data=data, files=files, timeout=30)
         r.raise_for_status()
         mid = r.json().get("message_id")
+        stored_url = upload_to_supabase_storage(file_storage.filename, file_bytes, mimetype)
         label = "Hình ảnh" if att_type == "image" else "File"
-        threading.Thread(target=log_message, args=(recipient_id, "out", f"[{label} đính kèm — {file_storage.filename}]"), kwargs={"mid": mid}, daemon=True).start()
+        body = f"[{label}] {stored_url}" if stored_url else f"[{label} đính kèm — {file_storage.filename}]"
+        threading.Thread(target=log_message, args=(recipient_id, "out", body), kwargs={"mid": mid}, daemon=True).start()
     except Exception as e:
         print(f"send_uploaded_attachment failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
 
@@ -446,6 +515,7 @@ def send_server_file(recipient_id, filepath):
     """Gửi 1 file PDF đã có sẵn trên server (thư mục catalogs/), không cần nhân viên upload lại từ máy.
     Dùng cho nút tư vấn nhanh trong CRM, multipart trực tiếp lên Facebook nên khách nhận thẻ file thật."""
     import json as _json3
+    from urllib.parse import quote
     filename = os.path.basename(filepath)
     url = "https://graph.facebook.com/v18.0/me/messages"
     data = {
@@ -459,7 +529,12 @@ def send_server_file(recipient_id, filepath):
             r = requests.post(url, data=data, files=files, timeout=30)
         r.raise_for_status()
         mid = r.json().get("message_id")
-        threading.Thread(target=log_message, args=(recipient_id, "out", f"[File đính kèm, {filename}]"), kwargs={"mid": mid}, daemon=True).start()
+        # File này đã có sẵn URL công khai qua route /catalogs/<filename> — dùng
+        # đúng URL đó để log, khớp định dạng "[File] <url>" mà CRM parse ra thẻ
+        # file/preview (không phải "[File đính kèm, ...]" như trước, CRM không
+        # nhận diện được định dạng đó nên hiện ra dạng chữ thô).
+        file_url = f"/catalogs/{quote(filename)}"
+        threading.Thread(target=log_message, args=(recipient_id, "out", f"[File] {file_url}"), kwargs={"mid": mid}, daemon=True).start()
     except Exception as e:
         print(f"send_server_file failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
 
@@ -1135,6 +1210,7 @@ html, body { height: 100%; overflow: hidden; }
 .sync-btn { padding: 0.35rem 0.7rem; border: 1px solid #e0ddd5; border-radius: 7px; background: #fafaf8; font-size: 12px; font-weight: 600; cursor: pointer; }
 .sync-btn:hover { background: #f0ede8; }
 .sync-status { font-size: 11px; color: #999; }
+.sync-days { width: 42px; padding: 0.3rem 0.35rem; border: 1px solid #e0ddd5; border-radius: 7px; font-size: 12px; text-align: center; }
 .conv-list { flex: 1; overflow-y: auto; }
 .conv-item { display: flex; gap: 0.7rem; padding: 0.75rem 1.2rem; text-decoration: none; color: inherit; border-bottom: 1px solid #f5f4f0; }
 .conv-item:hover { background: #faf9f6; }
@@ -1189,7 +1265,8 @@ html, body { height: 100%; overflow: hidden; }
       </form>
       <div class="sync-row">
         <form method="POST" action="/crm/backfill" onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='Đang đồng bộ...';">
-          <button class="sync-btn" type="submit">↻ Đồng bộ hội thoại cũ</button>
+          <input class="sync-days" type="number" name="days" value="30" min="1" max="365" title="Đồng bộ hội thoại có hoạt động trong bao nhiêu ngày gần đây">
+          <button class="sync-btn" type="submit">↻ Đồng bộ (ngày gần đây)</button>
         </form>
         <span class="sync-status" id="sync-status"></span>
       </div>
@@ -1355,8 +1432,13 @@ def crm_inbox(psid):
 @app.route("/crm/backfill", methods=["POST"])
 @crm_login_required
 def crm_backfill():
+    try:
+        days_back = int(request.form.get("days", 30))
+    except ValueError:
+        days_back = 30
+    days_back = max(1, min(days_back, 365))
     if not _backfill_status["running"]:
-        threading.Thread(target=backfill_facebook_conversations, daemon=True).start()
+        threading.Thread(target=backfill_facebook_conversations, kwargs={"days_back": days_back}, daemon=True).start()
     return redirect(url_for("crm_inbox"))
 
 @app.route("/crm/backfill/status")
