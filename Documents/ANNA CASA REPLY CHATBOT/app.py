@@ -435,16 +435,40 @@ def send_uploaded_attachment(recipient_id, file_storage):
         print(f"send_uploaded_attachment failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
 
 
+def send_server_file(recipient_id, filepath):
+    """Gửi 1 file PDF đã có sẵn trên server (thư mục catalogs/), không cần nhân viên upload lại từ máy.
+    Dùng cho nút tư vấn nhanh trong CRM, multipart trực tiếp lên Facebook nên khách nhận thẻ file thật."""
+    import json as _json3
+    filename = os.path.basename(filepath)
+    url = "https://graph.facebook.com/v18.0/me/messages"
+    data = {
+        "recipient": _json3.dumps({"id": recipient_id}),
+        "message": _json3.dumps({"attachment": {"type": "file", "payload": {"is_reusable": True}}}),
+        "access_token": META_PAGE_TOKEN,
+    }
+    try:
+        with open(filepath, "rb") as f:
+            files = {"filedata": (filename, f, "application/pdf")}
+            r = requests.post(url, data=data, files=files, timeout=30)
+        r.raise_for_status()
+        mid = r.json().get("message_id")
+        threading.Thread(target=log_message, args=(recipient_id, "out", f"[File đính kèm, {filename}]"), kwargs={"mid": mid}, daemon=True).start()
+    except Exception as e:
+        print(f"send_server_file failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
+
+
 FEMALE_MIDDLE = {"thị", "ngọc", "thùy", "thanh", "thu", "mai", "lan", "hương", "linh", "thi"}
 FEMALE_FIRST  = {"hoa", "lan", "linh", "hương", "trang", "thảo", "ngân", "vy", "ly", "my",
                  "mai", "yến", "vân", "nhung", "loan", "hằng", "nga", "phương", "hiền", "dung",
                  "trinh", "châu", "nhi", "khánh", "trâm", "tuyền", "quỳnh", "diệu", "thúy",
-                 "hạnh", "lý", "tiên", "xuân", "diễm", "giang", "thư", "bích", "kim", "cúc", "ngọc"}
+                 "hạnh", "lý", "tiên", "xuân", "diễm", "giang", "thư", "bích", "kim", "cúc", "ngọc",
+                 "hà", "uyên", "quyên", "như", "duyên", "ánh", "thoa", "oanh", "tuyết", "ly"}
 MALE_MIDDLE   = {"văn", "hữu", "đức", "công", "quốc", "minh", "trung", "anh", "bá", "gia"}
 MALE_FIRST    = {"hùng", "dũng", "tuấn", "nam", "long", "đức", "thành", "hải", "sơn", "bình",
                  "trung", "khoa", "lâm", "phong", "quân", "khải", "tùng", "cường", "kiên", "đạt",
                  "nghĩa", "nhân", "phát", "thắng", "vinh", "khánh", "huy", "minh", "hoàng", "tâm",
-                 "toàn", "thiện", "phúc", "bảo", "khang", "duy", "quang", "tú", "lộc", "tài"}
+                 "toàn", "thiện", "phúc", "bảo", "khang", "duy", "quang", "tú", "lộc", "tài",
+                 "hưng", "phú", "an", "quyền", "kỳ", "việt", "hiếu", "chính", "trí", "khôi"}
 
 def is_lead_form(text: str) -> bool:
     """Detect Facebook Lead Form auto-messages — không cần bot reply."""
@@ -461,30 +485,54 @@ def is_lead_form(text: str) -> bool:
     ]
     return sum(1 for s in lead_signals if s in t) >= 2
 
-def detect_gender(full_name: str) -> str:
-    """Trả về 'anh', 'chị', hoặc 'bạn' nếu không xác định được."""
-    if not full_name:
-        return "bạn"
-    parts = [p.lower() for p in full_name.strip().split()]
+COMMON_SURNAMES = {
+    "nguyễn", "trần", "lê", "phạm", "hoàng", "huỳnh", "phan", "vũ", "võ", "đặng",
+    "bùi", "đỗ", "hồ", "ngô", "dương", "lý", "đinh", "đoàn", "vương", "trương",
+    "cao", "đào", "mai", "tô", "lưu", "đàm", "tạ", "châu", "văn", "lâm",
+}
 
-    # Ưu tiên tên chính (cuối) trước
-    first = parts[-1]
-    if first in FEMALE_FIRST: return "chị"
-    if first in MALE_FIRST:   return "anh"
+def parse_customer_name(full_name: str):
+    """Đoán xưng hô (anh/chị/bạn) và tên gọi (tên riêng) từ tên hiển thị Facebook.
+    Tên có thể theo thứ tự VN chuẩn (Họ Đệm Tên, tên riêng ở cuối) hoặc kiểu Tây
+    (tên riêng trước, họ ở cuối), nên tên gọi phải lấy đúng từ đã dùng để đoán
+    xưng hô, tránh lẫn (vd không dùng nhầm họ "Nguyễn" làm tên gọi).
+    Trả về tuple (honorific, call_name)."""
+    if not full_name or not full_name.strip():
+        return "bạn", ""
+    raw_parts = full_name.strip().split()
+    parts = [p.lower() for p in raw_parts]
 
-    # Nếu tên chính không xác định được → mới xét tên đệm
-    if len(parts) >= 3:
-        middle = parts[-2]
-        if middle in MALE_MIDDLE:   return "anh"
-        if middle in FEMALE_MIDDLE: return "chị"
+    # Nếu từ cuối là họ phổ biến còn từ đầu thì không, khả năng cao tên hiển thị
+    # kiểu Tây (tên riêng trước, họ ở cuối) — vd "Kim Giang Nguyễn", "Hà Thị Nguyễn".
+    western_order = len(parts) >= 2 and parts[-1] in COMMON_SURNAMES and parts[0] not in COMMON_SURNAMES
 
-    # Fallback: tên hiển thị kiểu Tây (tên chính đứng đầu, họ đứng cuối)
+    if not western_order:
+        # Ưu tiên tên chính (cuối) trước, đúng thứ tự VN chuẩn
+        first = parts[-1]
+        if first in FEMALE_FIRST: return "chị", raw_parts[-1]
+        if first in MALE_FIRST:   return "anh", raw_parts[-1]
+
+        # Nếu tên chính không xác định được → mới xét tên đệm
+        if len(parts) >= 3:
+            middle = parts[-2]
+            if middle in MALE_MIDDLE:   return "anh", raw_parts[-1]
+            if middle in FEMALE_MIDDLE: return "chị", raw_parts[-1]
+
+    # Tên hiển thị kiểu Tây (tên chính đứng đầu, họ đứng cuối)
     if len(parts) >= 2:
         last = parts[0]
-        if last in FEMALE_FIRST: return "chị"
-        if last in MALE_FIRST:   return "anh"
+        if last in FEMALE_FIRST: return "chị", raw_parts[0]
+        if last in MALE_FIRST:   return "anh", raw_parts[0]
 
-    return "bạn"
+    # Không đoán được giới tính, vẫn ưu tiên tên riêng làm tên gọi thay vì họ
+    if western_order:
+        return "bạn", raw_parts[0]
+    return "bạn", raw_parts[-1]
+
+
+def detect_gender(full_name: str) -> str:
+    """Trả về 'anh', 'chị', hoặc 'bạn' nếu không xác định được."""
+    return parse_customer_name(full_name)[0]
 
 
 # ── ARMCHAIR NOOK ─────────────────────────────────────────────────────────────
@@ -1098,6 +1146,9 @@ html, body { height: 100%; overflow: hidden; }
 .reply-box textarea { flex: 1; border: 1px solid #e0ddd5; border-radius: 10px; padding: 0.7rem; font-size: 14px; resize: none; font-family: inherit; }
 .reply-box button.send { padding: 0 1.5rem; border: none; border-radius: 10px; background: #1a1a1a; color: #fff; font-weight: 600; cursor: pointer; }
 .attach-preview { display: none; align-items: center; gap: 0.5rem; font-size: 12.5px; background: #f0ede8; padding: 0.4rem 0.7rem; border-radius: 8px; width: fit-content; }
+.quick-actions { padding: 0.6rem 1.5rem 0; background: #fff; border-top: 1px solid #e8e6e0; }
+.quick-gdt-btn { border: 1px solid #d8d3c8; background: #f7f5f0; color: #4a4436; font-size: 13px; font-weight: 600; padding: 0.5rem 0.9rem; border-radius: 8px; cursor: pointer; }
+.quick-gdt-btn:hover { background: #efeae0; }
 .attach-preview button { border: none; background: none; cursor: pointer; color: #888; font-size: 14px; }
 </style></head><body>
 <div class="app">
@@ -1174,6 +1225,9 @@ html, body { height: 100%; overflow: hidden; }
       <div class="time" style="text-align: {{ 'right' if m.direction == 'out' else 'left' }}">{{ m.created_at[:16].replace('T',' ') if m.created_at else '' }}</div>
       {% endfor %}
     </div>
+    <form method="POST" action="/crm/customer/{{ active_psid }}/quick-gdt" class="quick-actions">
+      <button type="submit" class="quick-gdt-btn" onclick="return confirm('Gửi chào + 2 catalog giấy dán tường + câu hỏi nhà riêng/dự án cho khách này?')">📄 Tư vấn giấy dán tường (1 bấm)</button>
+    </form>
     <form class="reply-box" method="POST" action="/crm/customer/{{ active_psid }}/reply" enctype="multipart/form-data" id="reply-form">
       <div class="attach-preview" id="attach-preview">
         <span id="attach-name"></span>
@@ -1290,6 +1344,30 @@ def crm_reply(psid):
     attachment = request.files.get("attachment")
     if attachment and attachment.filename:
         send_uploaded_attachment(psid, attachment)
+    return redirect(url_for("crm_inbox", psid=psid))
+
+GDT_CATALOG_FILES = [
+    "catalogs/Giấy dán tường Cổ điển SALEOFF.pdf",
+    "catalogs/Giấy dán tường Hiện đại SALEOFF.pdf",
+]
+
+@app.route("/crm/customer/<psid>/quick-gdt", methods=["POST"])
+@crm_login_required
+def crm_quick_gdt(psid):
+    """Nút tư vấn nhanh giấy dán tường: chào (tự đoán anh/chị + tên), gửi 2 catalog thật,
+    rồi hỏi nhà riêng hay dự án. Gộp cả quy trình thành 1 lần bấm thay vì gõ tay từng bước."""
+    customer = get_customer(psid)
+    full_name = (customer.get("name") or "").strip()
+    honorific, call_name = parse_customer_name(full_name)
+    who = f"{honorific} {call_name}".strip() if call_name else honorific
+
+    send_text(psid, f"Anna Casa xin chào {who}, em là Long sẽ hỗ trợ tư vấn mình ạ.")
+    time.sleep(1)
+    for path in GDT_CATALOG_FILES:
+        send_server_file(psid, path)
+        time.sleep(1)
+    who_cap = who[0].upper() + who[1:] if who else "Bạn"
+    send_text(psid, f"{who_cap} đang cần giấy cho nhà riêng hay dự án ạ?")
     return redirect(url_for("crm_inbox", psid=psid))
 
 CRM_STAGES = ["Mới", "Đang tư vấn", "Đã báo giá", "Đã chốt", "Không tiềm năng"]
