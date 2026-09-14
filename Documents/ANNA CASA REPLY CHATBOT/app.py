@@ -1500,16 +1500,21 @@ def _run_quick_gdt(psid):
         honorific, call_name = parse_customer_name(full_name)
         who = f"{honorific} {call_name}".strip() if call_name else honorific
 
+        results = {}
         _quick_gdt_last_status["stage"] = "sending greeting"
-        send_text(psid, f"Anna Casa xin chào {who}, em là Long sẽ hỗ trợ tư vấn mình ạ.")
+        ok, err = send_text(psid, f"Anna Casa xin chào {who}, em là Long sẽ hỗ trợ tư vấn mình ạ.")
+        results["greeting"] = ok if ok else err
         time.sleep(1)
         for path in GDT_CATALOG_FILES:
             _quick_gdt_last_status["stage"] = f"sending file {path}"
-            send_server_file(psid, path)
+            ok, err = send_server_file(psid, path)
+            results[path] = ok if ok else err
             time.sleep(1)
         who_cap = who[0].upper() + who[1:] if who else "Bạn"
         _quick_gdt_last_status["stage"] = "sending question"
-        send_text(psid, f"{who_cap} đang cần giấy cho nhà riêng hay dự án ạ?")
+        ok, err = send_text(psid, f"{who_cap} đang cần giấy cho nhà riêng hay dự án ạ?")
+        results["question"] = ok if ok else err
+        _quick_gdt_last_status["results"] = results
         _quick_gdt_last_status["stage"] = "done"
     except Exception as e:
         import traceback
