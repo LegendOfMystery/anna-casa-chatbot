@@ -1158,6 +1158,15 @@ def api_debug_cleanup():
     return jsonify({"deleted_count": len(result) if result is not None else None})
 
 
+@app.route("/api/debug-quick-gdt-status", methods=["GET"])
+def api_debug_quick_gdt_status():
+    """Xem trạng thái/lỗi của lần chạy nút quick-gdt gần nhất (nền) — chẩn đoán khi
+    nút không gửi được gì mà không rõ lý do."""
+    if not ADMIN_API_KEY or request.headers.get("X-Admin-Key") != ADMIN_API_KEY:
+        return jsonify({"error": "unauthorized"}), 401
+    return jsonify(_quick_gdt_last_status)
+
+
 # ── MINI CRM ──────────────────────────────────────────────────────────────────
 def crm_login_required(f):
     @wraps(f)
@@ -1462,22 +1471,35 @@ GDT_CATALOG_FILES = [
     "catalogs/Giấy dán tường Hiện đại SALEOFF.pdf",
 ]
 
+_quick_gdt_last_status: dict = {}
+
 def _run_quick_gdt(psid):
     """Phần việc thật sự chậm (2 lần upload file lên Facebook + sleep) — chạy trong
     thread nền để route trả response ngay, không bị gunicorn/Render timeout kill
     worker giữa chừng khi tổng thời gian vượt quá worker timeout (thường ~30s)."""
-    customer = get_customer(psid)
-    full_name = (customer.get("name") or "").strip()
-    honorific, call_name = parse_customer_name(full_name)
-    who = f"{honorific} {call_name}".strip() if call_name else honorific
+    global _quick_gdt_last_status
+    _quick_gdt_last_status = {"psid": psid, "stage": "started", "error": None}
+    try:
+        customer = get_customer(psid)
+        full_name = (customer.get("name") or "").strip()
+        honorific, call_name = parse_customer_name(full_name)
+        who = f"{honorific} {call_name}".strip() if call_name else honorific
 
-    send_text(psid, f"Anna Casa xin chào {who}, em là Long sẽ hỗ trợ tư vấn mình ạ.")
-    time.sleep(1)
-    for path in GDT_CATALOG_FILES:
-        send_server_file(psid, path)
+        _quick_gdt_last_status["stage"] = "sending greeting"
+        send_text(psid, f"Anna Casa xin chào {who}, em là Long sẽ hỗ trợ tư vấn mình ạ.")
         time.sleep(1)
-    who_cap = who[0].upper() + who[1:] if who else "Bạn"
-    send_text(psid, f"{who_cap} đang cần giấy cho nhà riêng hay dự án ạ?")
+        for path in GDT_CATALOG_FILES:
+            _quick_gdt_last_status["stage"] = f"sending file {path}"
+            send_server_file(psid, path)
+            time.sleep(1)
+        who_cap = who[0].upper() + who[1:] if who else "Bạn"
+        _quick_gdt_last_status["stage"] = "sending question"
+        send_text(psid, f"{who_cap} đang cần giấy cho nhà riêng hay dự án ạ?")
+        _quick_gdt_last_status["stage"] = "done"
+    except Exception as e:
+        import traceback
+        _quick_gdt_last_status["stage"] = "error"
+        _quick_gdt_last_status["error"] = f"{e}\n{traceback.format_exc()}"
 
 @app.route("/crm/customer/<psid>/quick-gdt", methods=["POST"])
 @crm_login_required
