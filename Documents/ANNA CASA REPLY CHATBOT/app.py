@@ -1264,7 +1264,7 @@ html, body { height: 100%; overflow: hidden; }
         <input class="search-box" type="text" name="q" value="{{ search }}" placeholder="Tìm khách theo tên...">
       </form>
       <div class="sync-row">
-        <form method="POST" action="/crm/backfill" onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='Đang đồng bộ...';">
+        <form method="POST" action="/crm/backfill" onsubmit="var f=this; setTimeout(function(){ var b=f.querySelector('button'); b.disabled=true; b.textContent='Đang đồng bộ...'; }, 0);">
           <input class="sync-days" type="number" name="days" value="30" min="1" max="365" title="Đồng bộ hội thoại có hoạt động trong bao nhiêu ngày gần đây">
           <button class="sync-btn" type="submit">↻ Đồng bộ (ngày gần đây)</button>
         </form>
@@ -1332,7 +1332,7 @@ html, body { height: 100%; overflow: hidden; }
       {% endfor %}
     </div>
     <form method="POST" action="/crm/customer/{{ active_psid }}/quick-gdt" class="quick-actions">
-      <button type="submit" class="quick-gdt-btn" onclick="this.disabled=true; this.textContent='Đang gửi...';">📄 Tư vấn giấy dán tường (1 bấm)</button>
+      <button type="submit" class="quick-gdt-btn" onclick="var b=this; setTimeout(function(){ b.disabled=true; b.textContent='Đang gửi...'; }, 0);">📄 Tư vấn giấy dán tường (1 bấm)</button>
     </form>
     <form class="reply-box" method="POST" action="/crm/customer/{{ active_psid }}/reply" enctype="multipart/form-data" id="reply-form">
       <div class="attach-preview" id="attach-preview">
