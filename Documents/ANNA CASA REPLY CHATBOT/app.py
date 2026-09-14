@@ -326,8 +326,11 @@ def send_text(recipient_id, text):
         r.raise_for_status()
         mid = r.json().get("message_id")
         threading.Thread(target=log_message, args=(recipient_id, "out", text), kwargs={"mid": mid}, daemon=True).start()
+        return True, ""
     except Exception as e:
-        print(f"send_text failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
+        err = f"send_text failed: {e} | body={r.text[:500] if 'r' in dir() else ''}"
+        print(err)
+        return False, err
 
 
 def get_sender_name(sender_id):
@@ -535,8 +538,11 @@ def send_server_file(recipient_id, filepath):
         # nhận diện được định dạng đó nên hiện ra dạng chữ thô).
         file_url = f"/catalogs/{quote(filename)}"
         threading.Thread(target=log_message, args=(recipient_id, "out", f"[File] {file_url}"), kwargs={"mid": mid}, daemon=True).start()
+        return True, ""
     except Exception as e:
-        print(f"send_server_file failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
+        err = f"send_server_file failed: {e} | body={r.text[:500] if 'r' in dir() else ''}"
+        print(err)
+        return False, err
 
 
 FEMALE_MIDDLE = {"thị", "ngọc", "thùy", "thanh", "thu", "mai", "lan", "hương", "linh", "thi"}
@@ -1480,8 +1486,17 @@ def _run_quick_gdt(psid):
     global _quick_gdt_last_status
     _quick_gdt_last_status = {"psid": psid, "stage": "started", "error": None}
     try:
+        # DB có thể lưu tên rỗng (get_sender_profile lúc khách nhắn lần đầu bị lỗi/
+        # thiếu quyền), khiến khách hiện "Khách" trong CRM và bị chào "bạn" thay vì
+        # tên thật — lấy lại tên tươi trực tiếp từ Facebook trước khi chào, đồng
+        # thời cập nhật lại DB nếu lần này lấy được.
         customer = get_customer(psid)
         full_name = (customer.get("name") or "").strip()
+        if not full_name:
+            fresh_name, fresh_avatar = get_sender_profile(psid)
+            full_name = (fresh_name or "").strip()
+            if full_name:
+                upsert_customer(psid, name=full_name, avatar_url=fresh_avatar)
         honorific, call_name = parse_customer_name(full_name)
         who = f"{honorific} {call_name}".strip() if call_name else honorific
 
