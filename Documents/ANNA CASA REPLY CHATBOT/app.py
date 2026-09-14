@@ -1462,11 +1462,10 @@ GDT_CATALOG_FILES = [
     "catalogs/Giấy dán tường Hiện đại SALEOFF.pdf",
 ]
 
-@app.route("/crm/customer/<psid>/quick-gdt", methods=["POST"])
-@crm_login_required
-def crm_quick_gdt(psid):
-    """Nút tư vấn nhanh giấy dán tường: chào (tự đoán anh/chị + tên), gửi 2 catalog thật,
-    rồi hỏi nhà riêng hay dự án. Gộp cả quy trình thành 1 lần bấm thay vì gõ tay từng bước."""
+def _run_quick_gdt(psid):
+    """Phần việc thật sự chậm (2 lần upload file lên Facebook + sleep) — chạy trong
+    thread nền để route trả response ngay, không bị gunicorn/Render timeout kill
+    worker giữa chừng khi tổng thời gian vượt quá worker timeout (thường ~30s)."""
     customer = get_customer(psid)
     full_name = (customer.get("name") or "").strip()
     honorific, call_name = parse_customer_name(full_name)
@@ -1479,6 +1478,13 @@ def crm_quick_gdt(psid):
         time.sleep(1)
     who_cap = who[0].upper() + who[1:] if who else "Bạn"
     send_text(psid, f"{who_cap} đang cần giấy cho nhà riêng hay dự án ạ?")
+
+@app.route("/crm/customer/<psid>/quick-gdt", methods=["POST"])
+@crm_login_required
+def crm_quick_gdt(psid):
+    """Nút tư vấn nhanh giấy dán tường: chào (tự đoán anh/chị + tên), gửi 2 catalog thật,
+    rồi hỏi nhà riêng hay dự án. Gộp cả quy trình thành 1 lần bấm thay vì gõ tay từng bước."""
+    threading.Thread(target=_run_quick_gdt, args=(psid,), daemon=True).start()
     return redirect(url_for("crm_inbox", psid=psid))
 
 CRM_STAGES = ["Mới", "Đang tư vấn", "Đã báo giá", "Đã chốt", "Không tiềm năng"]
