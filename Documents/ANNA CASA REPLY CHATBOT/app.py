@@ -370,16 +370,63 @@ def get_sender_profile(sender_id):
         return "", ""
 
 
+def _fetch_profile_once(psid: str):
+    """1 lần thử lấy (name, avatar) — gọi API gộp trước, API tên-riêng làm dự
+    phòng nếu API gộp không trả được name."""
+    name, avatar = get_sender_profile(psid)
+    name = (name or "").strip()
+    if not name:
+        # Facebook đôi khi từ chối trả "name" khi xin gộp chung với
+        # "profile_pic" trong 1 request, dù xin riêng name lại thành công.
+        name = (get_sender_name(psid) or "").strip()
+    return name, avatar
+
+
+def get_sender_profile_resilient(psid: str, attempts: int = 3, delay: float = 2.0):
+    """Giống get_sender_profile() nhưng thử lại nhiều lần cách nhau vài giây.
+    Khách nhắn tin LẦN ĐẦU cho Page thường bị Facebook trả trống "name" ngay
+    tức thì (profile PSID mới có độ trễ lan truyền ngắn phía Facebook) dù vài
+    giây sau gọi lại y hệt request đó sẽ có tên — đúng lý do CRM lấy được tên
+    khi nhân viên mở hội thoại (đã có thời gian trôi qua) còn bot trả lời tức
+    thì thì không. Chỉ dùng ở nơi chạy nền (threading.Thread), không dùng
+    trong request đồng bộ vì sẽ làm nhân viên phải chờ."""
+    for i in range(attempts):
+        name, avatar = _fetch_profile_once(psid)
+        if name:
+            return name, avatar
+        if i < attempts - 1:
+            time.sleep(delay)
+    return "", ""
+
+
 def ensure_customer_name(psid: str) -> dict:
     """Nếu khách chưa có tên trong DB (get_sender_profile lỗi lúc tin đầu tiên),
-    thử lấy lại tên+avatar tươi ngay bây giờ. Trả về customer record mới nhất."""
+    thử lấy lại tên+avatar tươi ngay bây giờ. Trả về customer record mới nhất.
+    Dùng trong route đồng bộ (CRM mở hội thoại) nên chỉ thử 1 lần, không delay."""
     customer = get_customer(psid)
     if not (customer.get("name") or "").strip():
-        fresh_name, fresh_avatar = get_sender_profile(psid)
-        fresh_name = (fresh_name or "").strip()
+        fresh_name, fresh_avatar = _fetch_profile_once(psid)
         if fresh_name:
             upsert_customer(psid, name=fresh_name, avatar_url=fresh_avatar)
             customer = get_customer(psid)
+    return customer
+
+
+def ensure_customer_name_resilient(psid: str, attempts: int = 3, delay: float = 2.0) -> dict:
+    """Giống ensure_customer_name() nhưng thử lại nhiều lần cách nhau vài giây.
+    Lý do cần bản riêng: khách nhắn tin LẦN ĐẦU cho Page thường bị Facebook trả
+    trống "name" ngay tức thì (profile PSID mới có độ trễ lan truyền ngắn) —
+    đây chính là lý do CRM lấy được tên khi nhân viên mở hội thoại (đã có thời
+    gian trôi qua từ lúc khách nhắn) còn bot tự động chào lại không, vì trước
+    đây bot chỉ thử 1 lần ngay lập tức. Chỉ gọi hàm này từ luồng chạy nền
+    (threading.Thread), không dùng trong request đồng bộ."""
+    customer = get_customer(psid)
+    if (customer.get("name") or "").strip():
+        return customer
+    fresh_name, fresh_avatar = get_sender_profile_resilient(psid, attempts=attempts, delay=delay)
+    if fresh_name:
+        upsert_customer(psid, name=fresh_name, avatar_url=fresh_avatar)
+        customer = get_customer(psid)
     return customer
 
 
@@ -1007,7 +1054,7 @@ def _maybe_ai_reply(sender_id: str, text: str, pronoun: str, first_name: str):
 # ── PROCESS TEXT MESSAGE ──────────────────────────────────────────────────────
 def process_message(sender_id, text, message_id=None):
     try:
-        sender_name, avatar_url = get_sender_profile(sender_id)
+        sender_name, avatar_url = get_sender_profile_resilient(sender_id)
         first_name = sender_name.split()[-1] if sender_name else ""
         pronoun = detect_gender(sender_name)
         print(f"[MSG] name='{sender_name}' pronoun='{pronoun}'")
@@ -1085,7 +1132,7 @@ def process_message(sender_id, text, message_id=None):
 # ── PROCESS IMAGE MESSAGE ─────────────────────────────────────────────────────
 def process_image(sender_id, image_url, caption="", message_id=None):
     try:
-        sender_name, avatar_url = get_sender_profile(sender_id)
+        sender_name, avatar_url = get_sender_profile_resilient(sender_id)
         first_name = sender_name.split()[-1] if sender_name else ""
         pronoun = detect_gender(sender_name)
 
@@ -1713,10 +1760,11 @@ def run_gdt_consultation_flow(psid: str, status: dict | None = None):
     /api/debug-quick-gdt-status — không bắt buộc cho đường tự động từ webhook."""
     if status is None:
         status = {}
-    # DB có thể lưu tên rỗng (get_sender_profile lúc khách nhắn lần đầu bị lỗi/
-    # thiếu quyền), khiến khách hiện "Khách" trong CRM và bị chào "bạn" thay vì
-    # tên thật — ensure_customer_name() thử lấy lại tên tươi trước khi chào.
-    customer = ensure_customer_name(psid)
+    # DB có thể lưu tên rỗng lúc khách nhắn lần đầu (Facebook có độ trễ lan
+    # truyền ngắn cho profile PSID mới), khiến khách hiện "Khách" trong CRM và
+    # bị chào "bạn" thay vì tên thật — thử lại vài lần cách nhau vài giây
+    # trước khi chào, thay vì chỉ thử 1 lần ngay lập tức.
+    customer = ensure_customer_name_resilient(psid)
     full_name = (customer.get("name") or "").strip()
     honorific, call_name = parse_customer_name(full_name)
     who = f"{honorific} {call_name}".strip() if call_name else honorific
