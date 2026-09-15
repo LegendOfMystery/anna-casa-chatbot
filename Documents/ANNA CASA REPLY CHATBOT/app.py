@@ -1307,6 +1307,41 @@ def api_debug_quick_gdt_status():
     return jsonify(_quick_gdt_last_status)
 
 
+@app.route("/api/debug-ai-preview", methods=["GET"])
+def api_debug_ai_preview():
+    """Xem trước AI sẽ trả lời gì cho 1 câu hỏi giả định — KHÔNG gửi tin thật cho
+    ai cả, chỉ gọi generate_ai_reply() và trả về text. Dùng để kiểm tra chất
+    lượng/giọng văn + xác nhận schema DB (ai_paused/ai_turns_used, app_config)
+    trước khi bật nút AI thật trong CRM."""
+    if not ADMIN_API_KEY or request.headers.get("X-Admin-Key") != ADMIN_API_KEY:
+        return jsonify({"error": "unauthorized"}), 401
+    psid = request.args.get("psid", "test-preview-psid").strip()
+    text = request.args.get("text", "").strip()
+    pronoun = request.args.get("pronoun", "anh").strip()
+    first_name = request.args.get("name", "").strip()
+    if not text:
+        return jsonify({"error": "text required"}), 400
+
+    result = {"anthropic_key_set": bool(ANTHROPIC_API_KEY)}
+
+    # Kiểm tra schema: thử ghi ai_paused/ai_turns_used vào 1 psid giả, đọc lại.
+    upsert_customer(psid, ai_paused=False, ai_turns_used=0)
+    after = get_customer(psid)
+    result["schema_check"] = {
+        "customers_has_ai_columns": "ai_paused" in after and "ai_turns_used" in after,
+        "customer_row": after,
+    }
+
+    # Kiểm tra bảng app_config + cờ toàn cục.
+    result["ai_globally_enabled"] = get_ai_globally_enabled()
+
+    # Gọi thật Claude (không gửi Facebook) để xem chất lượng câu trả lời.
+    reply = generate_ai_reply(psid, text, pronoun, first_name)
+    result["ai_reply_preview"] = reply
+
+    return jsonify(result)
+
+
 # ── MINI CRM ──────────────────────────────────────────────────────────────────
 def crm_login_required(f):
     @wraps(f)
