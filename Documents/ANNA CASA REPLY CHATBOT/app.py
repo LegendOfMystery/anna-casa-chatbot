@@ -354,13 +354,33 @@ def get_sender_name(sender_id):
         return ""
 
 def get_sender_profile(sender_id):
-    """Trả về (name, avatar_url). Facebook có thể không trả profile_pic tùy quyền app."""
+    """Trả về (name, avatar_url). Facebook có thể không trả profile_pic tùy quyền app.
+    User Profile API (endpoint này) đôi khi không trả được name cho 1 số khách dù
+    tin nhắn vẫn nhận bình thường — kém tin cậy hơn Conversations API dùng trong
+    backfill_facebook_conversations() (participants object ở đó có tên đầy đủ hơn
+    vì lấy trong ngữ cảnh inbox của Page, không qua User Profile API)."""
     try:
         url = f"https://graph.facebook.com/{sender_id}?fields=name,profile_pic&access_token={META_PAGE_TOKEN}"
         data = requests.get(url, timeout=5).json()
+        if "error" in data:
+            print(f"[PROFILE] Facebook trả lỗi khi lấy profile {sender_id}: {data['error']}")
         return data.get("name", ""), data.get("profile_pic", "")
-    except:
+    except Exception as e:
+        print(f"[PROFILE] exception khi lấy profile {sender_id}: {e}")
         return "", ""
+
+
+def ensure_customer_name(psid: str) -> dict:
+    """Nếu khách chưa có tên trong DB (get_sender_profile lỗi lúc tin đầu tiên),
+    thử lấy lại tên+avatar tươi ngay bây giờ. Trả về customer record mới nhất."""
+    customer = get_customer(psid)
+    if not (customer.get("name") or "").strip():
+        fresh_name, fresh_avatar = get_sender_profile(psid)
+        fresh_name = (fresh_name or "").strip()
+        if fresh_name:
+            upsert_customer(psid, name=fresh_name, avatar_url=fresh_avatar)
+            customer = get_customer(psid)
+    return customer
 
 
 # ── CATALOGUES ───────────────────────────────────────────────────────────────
@@ -1615,12 +1635,15 @@ def crm_logout():
 @crm_login_required
 def crm_inbox(psid):
     search = request.args.get("q", "").strip()
+    # Mở đúng 1 khách cụ thể → thử lấy lại tên nếu đang trống ("Khách" chung
+    # chung), tự sửa ngay lúc nhân viên bấm vào thay vì phải chờ đồng bộ lại.
+    customer = ensure_customer_name(psid) if psid else None
     return render_template_string(
         CRM_INBOX_HTML,
         conversations=get_conversations(search),
         search=search,
         active_psid=psid,
-        customer=get_customer(psid) if psid else None,
+        customer=customer,
         messages=get_messages(psid) if psid else [],
         stages=CRM_STAGES,
         ai_enabled=get_ai_globally_enabled(),
@@ -1685,15 +1708,9 @@ def _run_quick_gdt(psid):
     try:
         # DB có thể lưu tên rỗng (get_sender_profile lúc khách nhắn lần đầu bị lỗi/
         # thiếu quyền), khiến khách hiện "Khách" trong CRM và bị chào "bạn" thay vì
-        # tên thật — lấy lại tên tươi trực tiếp từ Facebook trước khi chào, đồng
-        # thời cập nhật lại DB nếu lần này lấy được.
-        customer = get_customer(psid)
+        # tên thật — ensure_customer_name() thử lấy lại tên tươi trước khi chào.
+        customer = ensure_customer_name(psid)
         full_name = (customer.get("name") or "").strip()
-        if not full_name:
-            fresh_name, fresh_avatar = get_sender_profile(psid)
-            full_name = (fresh_name or "").strip()
-            if full_name:
-                upsert_customer(psid, name=full_name, avatar_url=fresh_avatar)
         honorific, call_name = parse_customer_name(full_name)
         who = f"{honorific} {call_name}".strip() if call_name else honorific
 
