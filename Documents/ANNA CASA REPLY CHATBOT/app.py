@@ -1,7 +1,10 @@
 """
-ANNA CASA REPLY BOT — rule-based, không dùng AI
+ANNA CASA REPLY BOT — rule-based + AI fallback (Claude)
 Stack: Python + Flask + Meta Webhook + Google Sheets (lead tracking)
-Features: keyword rules → gửi link/ảnh sản phẩm, catalog PDF, bot toggle
+Features: keyword rules → gửi link/ảnh sản phẩm, catalog PDF, bot toggle.
+Khi không khớp rule nào, AI (Claude) trả lời thay vì im lặng — trong giới hạn
+số lượt/hội thoại và dừng ngay khi nhân viên tiếp quản (xem AI_MAX_TURNS,
+ai_paused, _maybe_ai_reply()).
 """
 
 import os
@@ -24,6 +27,14 @@ SUPABASE_URL         = os.environ.get("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 CRM_PASSWORD         = os.environ.get("CRM_PASSWORD", "")
 ADMIN_API_KEY        = os.environ.get("ADMIN_API_KEY", "")
+ANTHROPIC_API_KEY    = os.environ.get("ANTHROPIC_API_KEY", "")
+AI_MAX_TURNS         = 4  # số lượt AI tự trả lời tối đa cho 1 khách trước khi dừng, chờ nhân viên
+
+# mid các tin mình tự gửi (rule/AI/CRM/quick-gdt) — dùng để phát hiện tin nhân
+# viên gõ tay trực tiếp trong Meta Business Suite (echo có mid lạ) => tiếp quản,
+# tạm dừng AI cho khách đó. RAM thuần, mất khi redeploy (chấp nhận cho MVP,
+# cửa sổ hở rất ngắn vì Render chỉ chạy 1 worker).
+_bot_sent_mids: set = set()
 
 
 # ── IN-MEMORY STORE ───────────────────────────────────────────────────────────
@@ -325,6 +336,8 @@ def send_text(recipient_id, text):
         r = requests.post(url, json=payload, timeout=10)
         r.raise_for_status()
         mid = r.json().get("message_id")
+        if mid:
+            _bot_sent_mids.add(mid)
         threading.Thread(target=log_message, args=(recipient_id, "out", text), kwargs={"mid": mid}, daemon=True).start()
         return True, ""
     except Exception as e:
@@ -373,6 +386,8 @@ def send_image(recipient_id, image_url):
         r = requests.post(url, json=payload, timeout=15)
         r.raise_for_status()
         mid = r.json().get("message_id")
+        if mid:
+            _bot_sent_mids.add(mid)
         threading.Thread(target=log_message, args=(recipient_id, "out", f"[Hình ảnh] {image_url}"), kwargs={"mid": mid}, daemon=True).start()
     except Exception as e:
         print(f"send_image failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
@@ -392,6 +407,8 @@ def send_file(recipient_id, file_url):
         r = requests.post(url, json=payload, timeout=15)
         r.raise_for_status()
         mid = r.json().get("message_id")
+        if mid:
+            _bot_sent_mids.add(mid)
         threading.Thread(target=log_message, args=(recipient_id, "out", f"[File] {file_url}"), kwargs={"mid": mid}, daemon=True).start()
     except Exception as e:
         print(f"send_file failed: {e} | body={r.text[:500] if 'r' in dir() else ''}")
@@ -430,6 +447,8 @@ def send_file_reusable(recipient_id, key: str, file_url: str):
             r = requests.post(url, json=payload, timeout=15)
             r.raise_for_status()
             mid = r.json().get("message_id")
+            if mid:
+                _bot_sent_mids.add(mid)
             threading.Thread(target=log_message, args=(recipient_id, "out", f"[File] {file_url}"), kwargs={"mid": mid}, daemon=True).start()
             return
         except Exception as e:
@@ -506,6 +525,8 @@ def send_uploaded_attachment(recipient_id, file_storage):
         r = requests.post(url, data=data, files=files, timeout=30)
         r.raise_for_status()
         mid = r.json().get("message_id")
+        if mid:
+            _bot_sent_mids.add(mid)
         stored_url = upload_to_supabase_storage(file_storage.filename, file_bytes, mimetype)
         label = "Hình ảnh" if att_type == "image" else "File"
         body = f"[{label}] {stored_url}" if stored_url else f"[{label} đính kèm — {file_storage.filename}]"
@@ -532,6 +553,8 @@ def send_server_file(recipient_id, filepath):
             r = requests.post(url, data=data, files=files, timeout=30)
         r.raise_for_status()
         mid = r.json().get("message_id")
+        if mid:
+            _bot_sent_mids.add(mid)
         # File này đã có sẵn URL công khai qua route /catalogs/<filename> — dùng
         # đúng URL đó để log, khớp định dạng "[File] <url>" mà CRM parse ra thẻ
         # file/preview (không phải "[File đính kèm, ...]" như trước, CRM không
@@ -859,6 +882,87 @@ def rules_reply(sender_id: str, text: str, pronoun: str) -> bool:
     return False
 
 
+# ── AI FALLBACK (Claude) ──────────────────────────────────────────────────────
+# Chỉ chạy khi KHÔNG khớp bất kỳ flow/rule nào ở trên (thay vì im lặng như
+# trước). Có giới hạn số lượt (AI_MAX_TURNS) và tự tắt ngay khi nhân viên tiếp
+# quản hội thoại (ai_paused=True, set ở crm_reply/_run_quick_gdt/echo lạ).
+def _build_catalog_summary_for_ai() -> str:
+    lines = []
+    for p in fetch_all_products():
+        name = p.get("name", "")
+        price = p.get("price", "")
+        if not name:
+            continue
+        extra = p.get("material") or p.get("visual_description") or p.get("size") or ""
+        line = f"- {name}: {price}"
+        if extra:
+            line += f" ({extra})"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def generate_ai_reply(psid: str, incoming_text: str, pronoun: str, first_name: str) -> str | None:
+    """Gọi Claude soạn câu trả lời dựa trên lịch sử hội thoại + catalog thật.
+    Trả về None nếu lỗi hoặc chưa cấu hình API key — process_message() sẽ im
+    lặng như hành vi cũ trong trường hợp đó, không bao giờ tự bịa nếu AI hỏng."""
+    if not ANTHROPIC_API_KEY:
+        return None
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+        history = get_messages(psid)[-12:]
+        msg_list = []
+        for m in history:
+            body = (m.get("body") or "").strip()
+            if not body:
+                continue
+            role = "user" if m.get("direction") == "in" else "assistant"
+            msg_list.append({"role": role, "content": body})
+        if not msg_list or msg_list[-1]["role"] != "user":
+            msg_list.append({"role": "user", "content": incoming_text})
+
+        who = f"{pronoun} {first_name}".strip() if first_name else pronoun
+        system_prompt = f"""Bạn là Long, nhân viên tư vấn của Anna Casa Vietnam — nội thất nhập khẩu Ý (thảm, giấy dán tường, sofa, giường, đèn trang trí).
+Xưng "em", gọi khách là "{who}". Trả lời ngắn gọn, tự nhiên như tin nhắn Messenger thật (tối đa 2-3 câu, trừ khi khách cần liệt kê nhiều mẫu).
+CHỈ dùng thông tin sản phẩm trong danh sách dưới đây để trả lời giá/chất liệu/kích thước. Nếu khách hỏi điều không có trong danh sách, nói sẽ nhờ nhân viên khác hỗ trợ thêm — TUYỆT ĐỐI không tự bịa giá hay thông số.
+Nếu khách có ý định mua rõ ràng hoặc muốn chốt đơn, đề nghị xin số Zalo để nhân viên hỗ trợ tiếp, không tự chốt đơn hay xác nhận thanh toán.
+
+Danh sách sản phẩm:
+{_build_catalog_summary_for_ai()}"""
+
+        resp = client.messages.create(
+            model="claude-opus-4-8",
+            max_tokens=400,
+            system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
+            messages=msg_list,
+            thinking={"type": "adaptive"},
+        )
+        texts = [b.text for b in resp.content if getattr(b, "type", "") == "text"]
+        reply = "\n".join(texts).strip()
+        return reply or None
+    except Exception as e:
+        print(f"generate_ai_reply failed: {e}")
+        return None
+
+
+def _maybe_ai_reply(sender_id: str, text: str, pronoun: str, first_name: str):
+    """Gọi khi không khớp rule nào. Kiểm tra tiếp quản + trần lượt trước khi gửi."""
+    if not ANTHROPIC_API_KEY:
+        return
+    customer = get_customer(sender_id)
+    if customer.get("ai_paused"):
+        return
+    turns_used = customer.get("ai_turns_used") or 0
+    if turns_used >= AI_MAX_TURNS:
+        return
+    reply = generate_ai_reply(sender_id, text, pronoun, first_name)
+    if not reply:
+        return
+    send_text(sender_id, reply)
+    threading.Thread(target=upsert_customer, args=(sender_id,), kwargs={"ai_turns_used": turns_used + 1}, daemon=True).start()
+
+
 # ── PROCESS TEXT MESSAGE ──────────────────────────────────────────────────────
 def process_message(sender_id, text, message_id=None):
     try:
@@ -918,8 +1022,11 @@ def process_message(sender_id, text, message_id=None):
             fetale_reply(sender_id, pronoun, first_name)
             return
 
-        # Rules engine — gửi link/ảnh theo từ khóa. Không khớp gì thì im lặng.
-        rules_reply(sender_id, text, pronoun)
+        # Rules engine — gửi link/ảnh theo từ khóa. Không khớp gì → thử AI thay
+        # vì im lặng như trước (xem _maybe_ai_reply: tự tắt khi nhân viên tiếp
+        # quản hoặc hết trần lượt).
+        if not rules_reply(sender_id, text, pronoun):
+            _maybe_ai_reply(sender_id, text, pronoun, first_name)
 
     except Exception as e:
         print(f"process_message error: {e}")
@@ -1058,7 +1165,13 @@ def receive_webhook():
                         label = "Hình ảnh" if att_type == "image" else "File"
                         echo_body = f"[{label}] {att_url}" if att_url else f"[{label}]"
                     if echo_body:
-                        threading.Thread(target=upsert_customer, args=(customer_psid,), daemon=True).start()
+                        # mid không nằm trong _bot_sent_mids → tin này không qua bất
+                        # kỳ hàm send_* nào của mình (rule/AI/CRM/quick-gdt), nghĩa là
+                        # nhân viên gõ tay trực tiếp trong Meta Business Suite → coi
+                        # là tiếp quản, tạm dừng AI tự trả lời cho khách này.
+                        took_over = bool(message_id) and message_id not in _bot_sent_mids
+                        upsert_kwargs = {"ai_paused": True} if took_over else {}
+                        threading.Thread(target=upsert_customer, args=(customer_psid,), kwargs=upsert_kwargs, daemon=True).start()
                         threading.Thread(
                             target=log_message, args=(customer_psid, "out", echo_body),
                             kwargs={"mid": message_id}, daemon=True
@@ -1464,6 +1577,10 @@ def crm_backfill_status():
 @app.route("/crm/customer/<psid>/reply", methods=["POST"])
 @crm_login_required
 def crm_reply(psid):
+    # Nhân viên gửi tay trong CRM = tiếp quản hội thoại này, tạm dừng AI tự trả
+    # lời cho tới khi nhân viên bấm "Cho AI tiếp tục" (chưa có nút này — hiện tại
+    # cần bỏ ai_paused thủ công qua DB nếu muốn AI trả lời lại cho khách đó).
+    upsert_customer(psid, ai_paused=True)
     text = request.form.get("text", "").strip()
     if text:
         send_text(psid, text)
@@ -1485,6 +1602,9 @@ def _run_quick_gdt(psid):
     worker giữa chừng khi tổng thời gian vượt quá worker timeout (thường ~30s)."""
     global _quick_gdt_last_status
     _quick_gdt_last_status = {"psid": psid, "stage": "started", "error": None}
+    # Nhân viên bấm nút này = hành động tiếp quản (chủ động gửi thay khách),
+    # cũng tạm dừng AI như mọi thao tác gửi tay khác trong CRM.
+    upsert_customer(psid, ai_paused=True)
     try:
         # DB có thể lưu tên rỗng (get_sender_profile lúc khách nhắn lần đầu bị lỗi/
         # thiếu quyền), khiến khách hiện "Khách" trong CRM và bị chào "bạn" thay vì
