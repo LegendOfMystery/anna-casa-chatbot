@@ -886,6 +886,25 @@ def rules_reply(sender_id: str, text: str, pronoun: str) -> bool:
 # Chỉ chạy khi KHÔNG khớp bất kỳ flow/rule nào ở trên (thay vì im lặng như
 # trước). Có giới hạn số lượt (AI_MAX_TURNS) và tự tắt ngay khi nhân viên tiếp
 # quản hội thoại (ai_paused=True, set ở crm_reply/_run_quick_gdt/echo lạ).
+#
+# Cờ bật/tắt TOÀN CỤC nằm trong Supabase (bảng app_config), KHÔNG phải biến
+# RAM — tránh lặp lại lỗi bot_enabled/ad_id_store mất trạng thái mỗi lần
+# redeploy. Mặc định TẮT (an toàn) nếu bảng/dòng cấu hình chưa tồn tại, tức là
+# trước khi ai chạy `CREATE TABLE app_config...` thì tính năng này luôn no-op.
+def get_ai_globally_enabled() -> bool:
+    rows = supabase_request("GET", "app_config", params={"key": "eq.ai_enabled", "limit": "1"})
+    if not rows:
+        return False
+    return bool(rows[0].get("value"))
+
+def set_ai_globally_enabled(value: bool):
+    supabase_request(
+        "POST", "app_config",
+        json_body={"key": "ai_enabled", "value": value},
+        params={"on_conflict": "key"},
+        extra_headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+    )
+
 def _build_catalog_summary_for_ai() -> str:
     lines = []
     for p in fetch_all_products():
@@ -947,8 +966,10 @@ Danh sách sản phẩm:
 
 
 def _maybe_ai_reply(sender_id: str, text: str, pronoun: str, first_name: str):
-    """Gọi khi không khớp rule nào. Kiểm tra tiếp quản + trần lượt trước khi gửi."""
+    """Gọi khi không khớp rule nào. Kiểm tra cờ toàn cục + tiếp quản + trần lượt trước khi gửi."""
     if not ANTHROPIC_API_KEY:
+        return
+    if not get_ai_globally_enabled():
         return
     customer = get_customer(sender_id)
     if customer.get("ai_paused"):
@@ -1339,6 +1360,12 @@ html, body { height: 100%; overflow: hidden; }
 .sync-btn:hover { background: #f0ede8; }
 .sync-status { font-size: 11px; color: #999; }
 .sync-days { width: 42px; padding: 0.3rem 0.35rem; border: 1px solid #e0ddd5; border-radius: 7px; font-size: 12px; text-align: center; }
+.ai-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-top: 0.6rem; padding-top: 0.6rem; border-top: 1px dashed #eee; }
+.ai-badge { font-size: 11px; font-weight: 700; padding: 0.25rem 0.55rem; border-radius: 999px; }
+.ai-badge.off { background: #f0ede8; color: #888; }
+.ai-badge.on { background: #dff3e6; color: #1d8a4a; }
+.ai-toggle-btn { padding: 0.3rem 0.6rem; border: 1px solid #e0ddd5; border-radius: 7px; background: #fafaf8; font-size: 11px; font-weight: 600; cursor: pointer; }
+.ai-toggle-btn:hover { background: #f0ede8; }
 .conv-list { flex: 1; overflow-y: auto; }
 .conv-item { display: flex; gap: 0.7rem; padding: 0.75rem 1.2rem; text-decoration: none; color: inherit; border-bottom: 1px solid #f5f4f0; }
 .conv-item:hover { background: #faf9f6; }
@@ -1397,6 +1424,12 @@ html, body { height: 100%; overflow: hidden; }
           <button class="sync-btn" type="submit">↻ Đồng bộ (ngày gần đây)</button>
         </form>
         <span class="sync-status" id="sync-status"></span>
+      </div>
+      <div class="ai-toggle-row">
+        <span class="ai-badge {{ 'on' if ai_enabled else 'off' }}">AI tự trả lời: {{ 'BẬT' if ai_enabled else 'TẮT' }}</span>
+        <form method="POST" action="/crm/ai-toggle">
+          <button class="ai-toggle-btn" type="submit">{{ 'Tắt AI' if ai_enabled else 'Bật AI' }}</button>
+        </form>
       </div>
     </div>
     <div class="conv-list">
@@ -1555,6 +1588,7 @@ def crm_inbox(psid):
         customer=get_customer(psid) if psid else None,
         messages=get_messages(psid) if psid else [],
         stages=CRM_STAGES,
+        ai_enabled=get_ai_globally_enabled(),
     )
 
 @app.route("/crm/backfill", methods=["POST"])
@@ -1573,6 +1607,14 @@ def crm_backfill():
 @crm_login_required
 def crm_backfill_status():
     return jsonify(_backfill_status)
+
+@app.route("/crm/ai-toggle", methods=["POST"])
+@crm_login_required
+def crm_ai_toggle():
+    """Bật/tắt AI toàn cục — nằm sau đăng nhập CRM (khác /api/toggle của bot rule
+    hiện không có xác thực). Mặc định TẮT, chỉ nhân viên trong CRM mới bật được."""
+    set_ai_globally_enabled(not get_ai_globally_enabled())
+    return redirect(url_for("crm_inbox"))
 
 @app.route("/crm/customer/<psid>/reply", methods=["POST"])
 @crm_login_required
