@@ -370,26 +370,60 @@ def get_sender_profile(sender_id):
         return "", ""
 
 
+def get_name_via_conversations_api(psid: str) -> str:
+    """Lấy tên qua Conversations API (participants) thay vì User Profile API.
+    Đây là nguồn backfill_facebook_conversations() vẫn dùng và đáng tin cậy hơn
+    hẳn — thực tế đo được: khách vẫn bị User Profile API trả trống "name" dù
+    đã đợi và thử lại nhiều lần (xem get_sender_profile_resilient), nên cần 1
+    nguồn khác hẳn chứ không chỉ gọi lại cùng 1 API."""
+    try:
+        page_info = requests.get(f"https://graph.facebook.com/v18.0/me?access_token={META_PAGE_TOKEN}", timeout=5).json()
+        page_id = page_info.get("id")
+        if not page_id:
+            return ""
+        url = f"https://graph.facebook.com/v18.0/{page_id}/conversations"
+        params = {"user_id": psid, "platform": "messenger", "fields": "participants", "access_token": META_PAGE_TOKEN}
+        data = requests.get(url, params=params, timeout=8).json()
+        if "error" in data:
+            print(f"[PROFILE] Conversations API trả lỗi khi lấy tên {psid}: {data['error']}")
+            return ""
+        convs = data.get("data", [])
+        if not convs:
+            return ""
+        participants = convs[0].get("participants", {}).get("data", [])
+        customer = next((p for p in participants if p.get("id") != page_id), None)
+        return ((customer or {}).get("name") or "").strip()
+    except Exception as e:
+        print(f"[PROFILE] exception Conversations API lấy tên {psid}: {e}")
+        return ""
+
+
 def _fetch_profile_once(psid: str):
     """1 lần thử lấy (name, avatar) — gọi API gộp trước, API tên-riêng làm dự
-    phòng nếu API gộp không trả được name."""
+    phòng, rồi tới Conversations API (nguồn khác hẳn, đáng tin cậy hơn) nếu
+    2 API trên (cùng nền User Profile API) đều không trả được tên."""
     name, avatar = get_sender_profile(psid)
     name = (name or "").strip()
     if not name:
         # Facebook đôi khi từ chối trả "name" khi xin gộp chung với
         # "profile_pic" trong 1 request, dù xin riêng name lại thành công.
         name = (get_sender_name(psid) or "").strip()
+    if not name:
+        name = get_name_via_conversations_api(psid)
     return name, avatar
 
 
-def get_sender_profile_resilient(psid: str, attempts: int = 3, delay: float = 2.0):
+def get_sender_profile_resilient(psid: str, attempts: int = 4, delay: float = 2.5):
     """Giống get_sender_profile() nhưng thử lại nhiều lần cách nhau vài giây.
     Khách nhắn tin LẦN ĐẦU cho Page thường bị Facebook trả trống "name" ngay
     tức thì (profile PSID mới có độ trễ lan truyền ngắn phía Facebook) dù vài
     giây sau gọi lại y hệt request đó sẽ có tên — đúng lý do CRM lấy được tên
     khi nhân viên mở hội thoại (đã có thời gian trôi qua) còn bot trả lời tức
-    thì thì không. Chỉ dùng ở nơi chạy nền (threading.Thread), không dùng
-    trong request đồng bộ vì sẽ làm nhân viên phải chờ."""
+    thì thì không. Thực tế đo được có khách vẫn trống tên sau 3 lần thử cách
+    nhau 2s (~6s) — vì vậy mỗi lần thử cũng thêm Conversations API làm nguồn dự
+    phòng (_fetch_profile_once), không chỉ đơn thuần lặp lại cùng 1 API. Chỉ
+    dùng ở nơi chạy nền (threading.Thread), không dùng trong request đồng bộ vì
+    sẽ làm nhân viên phải chờ."""
     for i in range(attempts):
         name, avatar = _fetch_profile_once(psid)
         if name:
