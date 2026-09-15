@@ -1033,6 +1033,15 @@ def process_message(sender_id, text, message_id=None):
             send_text(sender_id, "Anna Casa gửi bạn 2 catalog giấy dán tường Arte từ Pháp, nếu bạn cần thêm hình mẫu nào nhân viên tư vấn sẽ hỗ trợ mình nha")
             return
 
+        # "Tư vấn giấy dán tường" — cụm chính xác từ nút quick-reply dưới quảng
+        # cáo GDT (rất nhiều khách gõ đúng câu này làm tin đầu tiên). Chạy chung
+        # 1 luồng với nút quick-gdt trong CRM: chào (tự đoán anh/chị + tên) + gửi
+        # 2 catalog thật + hỏi nhà riêng hay dự án — tự động hóa việc trước đây
+        # phải bấm tay từng khách. Chạy nền vì upload file lớn có thể mất lâu.
+        if text.strip().lower() == "tư vấn giấy dán tường":
+            threading.Thread(target=run_gdt_consultation_flow, args=(sender_id,), daemon=True).start()
+            return
+
         # Armchair Nook — flow tư vấn có sẵn, tự chào khách
         if is_nook_question(text):
             nook_reply(sender_id, pronoun, first_name)
@@ -1696,6 +1705,40 @@ GDT_CATALOG_FILES = [
 
 _quick_gdt_last_status: dict = {}
 
+def run_gdt_consultation_flow(psid: str, status: dict | None = None):
+    """Chào (tự đoán anh/chị + tên), gửi 2 catalog giấy dán tường thật, hỏi nhà
+    riêng hay dự án. Dùng chung cho nút quick-gdt trong CRM VÀ khi khách tự
+    nhắn đúng cụm 'Tư vấn giấy dán tường' (nút quick-reply dưới quảng cáo).
+    `status` (nếu truyền vào) được cập nhật stage/results để debug qua
+    /api/debug-quick-gdt-status — không bắt buộc cho đường tự động từ webhook."""
+    if status is None:
+        status = {}
+    # DB có thể lưu tên rỗng (get_sender_profile lúc khách nhắn lần đầu bị lỗi/
+    # thiếu quyền), khiến khách hiện "Khách" trong CRM và bị chào "bạn" thay vì
+    # tên thật — ensure_customer_name() thử lấy lại tên tươi trước khi chào.
+    customer = ensure_customer_name(psid)
+    full_name = (customer.get("name") or "").strip()
+    honorific, call_name = parse_customer_name(full_name)
+    who = f"{honorific} {call_name}".strip() if call_name else honorific
+
+    results = {}
+    status["stage"] = "sending greeting"
+    ok, err = send_text(psid, f"Anna Casa xin chào {who}, em là Long sẽ hỗ trợ tư vấn mình ạ.")
+    results["greeting"] = ok if ok else err
+    time.sleep(1)
+    for path in GDT_CATALOG_FILES:
+        status["stage"] = f"sending file {path}"
+        ok, err = send_server_file(psid, path)
+        results[path] = ok if ok else err
+        time.sleep(1)
+    who_cap = who[0].upper() + who[1:] if who else "Bạn"
+    status["stage"] = "sending question"
+    ok, err = send_text(psid, f"{who_cap} đang cần giấy cho nhà riêng hay dự án ạ?")
+    results["question"] = ok if ok else err
+    status["results"] = results
+    status["stage"] = "done"
+
+
 def _run_quick_gdt(psid):
     """Phần việc thật sự chậm (2 lần upload file lên Facebook + sleep) — chạy trong
     thread nền để route trả response ngay, không bị gunicorn/Render timeout kill
@@ -1706,30 +1749,7 @@ def _run_quick_gdt(psid):
     # cũng tạm dừng AI như mọi thao tác gửi tay khác trong CRM.
     upsert_customer(psid, ai_paused=True)
     try:
-        # DB có thể lưu tên rỗng (get_sender_profile lúc khách nhắn lần đầu bị lỗi/
-        # thiếu quyền), khiến khách hiện "Khách" trong CRM và bị chào "bạn" thay vì
-        # tên thật — ensure_customer_name() thử lấy lại tên tươi trước khi chào.
-        customer = ensure_customer_name(psid)
-        full_name = (customer.get("name") or "").strip()
-        honorific, call_name = parse_customer_name(full_name)
-        who = f"{honorific} {call_name}".strip() if call_name else honorific
-
-        results = {}
-        _quick_gdt_last_status["stage"] = "sending greeting"
-        ok, err = send_text(psid, f"Anna Casa xin chào {who}, em là Long sẽ hỗ trợ tư vấn mình ạ.")
-        results["greeting"] = ok if ok else err
-        time.sleep(1)
-        for path in GDT_CATALOG_FILES:
-            _quick_gdt_last_status["stage"] = f"sending file {path}"
-            ok, err = send_server_file(psid, path)
-            results[path] = ok if ok else err
-            time.sleep(1)
-        who_cap = who[0].upper() + who[1:] if who else "Bạn"
-        _quick_gdt_last_status["stage"] = "sending question"
-        ok, err = send_text(psid, f"{who_cap} đang cần giấy cho nhà riêng hay dự án ạ?")
-        results["question"] = ok if ok else err
-        _quick_gdt_last_status["results"] = results
-        _quick_gdt_last_status["stage"] = "done"
+        run_gdt_consultation_flow(psid, _quick_gdt_last_status)
     except Exception as e:
         import traceback
         _quick_gdt_last_status["stage"] = "error"
